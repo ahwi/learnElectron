@@ -213,9 +213,106 @@ CMSIS分为3层：
 
 **关键文件介绍：**
 
+STM32F4标准外设固件库文件关系图
 
+<img src="精通STM43F4 库函数版笔记.assets/image-20221124203305105.png" alt="image-20221124203305105" style="zoom:67%;" />
+
+* `core_cm4.h`
+  * 文件位于`\STM32F4xx_DSP_StdPeriph_Lib_V1.4.0\Libraries\CMSIS\Include`目录
+  * 这个是CMSIS核心文件，提供进入M4内核接口，由ARM公司提供，对所有CM4内核的芯片都一样，你永远都不用修改这个文件。
+
+* `stm32f3xx.h`和`system_stm32f4xx.h`
+
+  * 文件位于`\STM32F4xx_DSP_StdPeriph_Lib_V1.4.0\Libraries\CMSIS\Device\ST\STM32F4xx\Include`
+
+  * `system_stm32f4xx.h`
+
+    * 是片上外设接入层系统头文件，主要是申明设置系统及总线时钟相关的函数
+    * 对应的源文件`system_stm32f4xx.c`在目录`\STM32F4xx_DSP_StdPeriph_Lib_V1.4.0\Project\STM32F4xx_StdPeriph_Templates`
+    * 这里面一个重要的函数`SystemInit()`函数，这个函数在我们系统启动的时候会调用，用来设置整个系统和总线时钟。
+
+  * `stm32f3xx.h`
+
+    * 是STM32F4片上外设访问层头文件。
+
+    * 主要是系统寄存器定义申明以及包装内存操作。同时还包含一些时钟相关的定义，FPU和MPU单元开启定义、中断相关定义等等
+
+      > 4.6 MDK中寄存器地址名称映射分析  中会讲到是怎样申明以及怎样将内存封装起来
+
+    * 这个文件相当重要，经常需要看这个文件里面的相关定义
+
+* `stm32f4xx_it.c`和`stm32f4xx_it.h`以及`stm32xx_conf.h`等文件
+
+  * 文件位于`\STM32F4xx_DSP_StdPeriph_Lib_V1.4.0\Project\STM32F4xx_StdPeriph_Templates`
+
+  * `stm32f4xx_it.c`和`stm32f4xx_it.h`是用来编写中断服务函数
+
+    > 中断服务函数也可以随意编写在工程里面的任意一个文件里（作者的话，待商榷）
+
+  * `stm32xx_conf.h`
+
+    * 外设驱动配置文件
+    * 文件里面是一堆`#include`，建立工程的时候，可以注释掉一些不需要用到的外设文件。
+
+* `misc.c` `misc.h` `stm32f4xx_ppp.c` `stm32f4xx_ppp.h`以及`stm32f4xx_rcc.c`和`stm32f4xx_rcc.h`
+
+  * 文件位于`Libraries\STM32F4xx_StdPeriph_Driver`
+
+  * 这些文件是STM32F4标准的外设库文件
+
+  * `misc.c` `misc.h`
+
+    是定义中断优先级以及Systick定时器相关的函数
+
+  * `stm32f4xx_rcc.c`和`stm32f4xx_rcc.h`
+
+    与RCC相关的一些操作函数，作用主要是一些时钟的配置和使能，在任何一个STM32工程RCC相关的源文件和头文件是必须添加的。
+
+  * `stm32f4xx_ppp.c` `stm32f4xx_ppp.h`
+
+    stm32F4标准外设固件库对应的源文件和头文件。包括一些常用外设GPIO、ADC、USART等
+
+* `Application.c`
+
+  应用层代码，名族可以任意取，我们工程中直接取名为`main.c`
+
+一个完整的STMF4工程光有上面这些文件是不够的，还缺少启动文件。
+
+* STM32F4的启动文件存放在目录`\STM32F4xx_DSP_StdPeriph_Lib_V1.4.0\Libraries \CMSIS\Device\ST\STM32F4xx\Source\Templates\arm`
+
+* 对于不同型号的STM32F4系列对应的启动文件也不一样。
+
+* 我们开发板是STM32F407系列，所以启动文件为`startup_stm32f40_41xxx.s`
+
+* 启动文件的作用：
+
+  * 进行堆栈之类的初始化
+
+  * 中断向量表以及中断函数定义
+
+  * 启动文件要引导进入main函数
+
+  * `Reset_Handler`中断函数是唯一实现了的中断处理函数，其他的中断函数基本都是死循环。`Reset_handler`在我们系统启动的时候会调用，代码如下：
+
+    ![image-20221124212051082](精通STM43F4 库函数版笔记.assets/image-20221124212051082.png)
+
+    * 这段代码的作用是在系统复位后引导进入main函数，同时进入main函数之前，首先要调用`SystemInit`系统初始化函数。
 
 ### 3.2 MDK5简介
+
+软件的介绍略
+
+#### 安装：
+
+**MDK5安装**
+
+参考：`1，ALIENTEK 探索者 STM32F4 开发板入门资料\MDK5.14 安装手册.pdf`
+
+> 破解使用的注册机是从网上找的keygen(2032).7z，配套资料里面只支持到2020年
+
+**STM32F4的器件支持安装**
+
+直接点击目录`6，软件资料\1，软件\MDK5`下的安装包`Keil.STM32F4xx_DFP.1.0.8.pack`就可以安装了
 
 ### 3.3 新建基于STM32F40x固件库的MDK5工程模板
 
