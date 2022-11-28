@@ -316,6 +316,216 @@ STM32F4标准外设固件库文件关系图
 
 ### 3.3 新建基于STM32F40x固件库的MDK5工程模板
 
+#### 新建工程模板
+
+参考模板在：`4，程序源码\2，标准例程-库函数版本\实验0 Template工程模板`
+
+开始建立模板：
+
+1. 在`3.3.2_helloworld`文件夹下，新建`Template`文件夹（这个是工程的根目录文件夹），在该文件夹下面新建5个子文件夹：
+
+   * CORE
+   * FWLIB
+   * OBJ
+   * SYSTEM
+   * USER
+
+   如下图所示：
+
+   ![image-20221128220738136](精通STM43F4 库函数版笔记.assets/image-20221128220738136.png)
+
+2. 打开`Keil`，点击菜单：`Project->new Uvision Project`，将目录定位到USER目录，同时工程取名为Template之后保存，工程文件就都保存到了USER文件夹下面。
+
+   <img src="精通STM43F4 库函数版笔记.assets/image-20221128221033782.png" alt="image-20221128221033782" style="zoom:50%;" />
+
+   <img src="精通STM43F4 库函数版笔记.assets/image-20221128221124817.png" alt="image-20221128221124817" style="zoom: 33%;" />
+
+3. 接下来出现一个选择Device的界面，就是选择我们下芯片型号。选择`STMicroelectronics --> STM32F4 Series-- > STM32F407 --> STM32F407ZG`  
+
+   > 这里选择的型号是STM32F407ZG，如果是其他芯片需要选择相应的型号。
+   >
+   > 特别注意：一定要安装对应的器件pack才会显示这些内容。
+
+   <img src="精通STM43F4 库函数版笔记.assets/image-20221128221601309.png" alt="image-20221128221601309" style="zoom:50%;" />
+
+   点击OK，会弹出`Mainage Run-Time Enviroment`对话框，如下图所示：
+
+   <img src="精通STM43F4 库函数版笔记.assets/image-20221128221738834.png" alt="image-20221128221738834" style="zoom: 33%;" />
+
+   这是MDK5新增的一个功能，在这个界面，我们可以添加自己需要的组件，从而方便的构建开发环境，不过这里我们不做介绍，直接点击Cancel即可。得到如下界面：
+
+   <img src="精通STM43F4 库函数版笔记.assets/image-20221128221919981.png" alt="image-20221128221919981" style="zoom: 50%;" />
+
+
+
+4. 看看USER目录：
+
+   ![image-20221128222016686](精通STM43F4 库函数版笔记.assets/image-20221128222016686.png)
+
+   *  `Template.uvprojx`是工程文件，非常关键，不能轻易删除
+   * `Listings`和`Objects`文件夹是MDK自动生产的文件夹，用于存放编译过程产生的中间文件。可以把这两个文件删除，我们在后面的步骤中会新建一个OBJ文件夹，用来存放编译的中间文件。
+
+5. 下面我们要将官方的固件库包里的源码文件复制到我们的工程目录文件夹下面：
+
+   将固件包的目录`STM32F4xx_DSP_StdPeriph_Lib_V1.4.0\Libraries\STM32F4xx_StdPeriph_Driver`下面的`src`、`inc`文件夹拷贝到`FWLIB`文件夹下
+
+6. 将启动相关的文件复制到`CORE`目录下
+
+   * 定位到`STM32F4xx_DSP_StdPeriph_Lib_V1.4.0\Libraries\CMSIS\Device\ST\STM32F4xx\Source\Templates\arm`目录下，将文件`startup_stm32f40_41xxx.s`复制到CORE目录下。
+   * 定位到`STM32F4xx_DSP_StdPeriph_Lib_V1.4.0\Libraries\CMSIS\Include`目录下，将里面的4个头文件`core_cm4.h`  `core_cm4_simd.h` `core_cmFunc.h` `core_cmInstr.h`复制到CORE目录下
+
+   复制完后：
+
+   ![image-20221128224133011](精通STM43F4 库函数版笔记.assets/image-20221128224133011.png)
+
+7. 接下来复制工程模板需要的一些其他头文件和源文件到工程中
+
+   * 定位到`STM32F4xx_DSP_StdPeriph_Lib_V1.4.0\Libraries\CMSIS\Device\ST\STM32F4xx\Include`，将里面的两个头文件`stm32f4xx.h` `system_stm32f4xx.h` 复制到`USER`目录
+
+     > 这两个头文件是STM32F4工程非常关键的两个头文件，后面的课程会讲解。
+
+   * 定位到`STM32F4xx_DSP_StdPeriph_Lib_V1.4.0\Project\STM32F4xx_StdPeriph_Templates`，将目录下的5个文件`main.c` `stm32f4xx_conf.h` `stm32f4xx_it.c` `stm32f4xx_it.h` `system_stm32f4xx.c` 复制到`USER`目录下，相关文件复制后的`USER`目录如下图所示：
+
+     <img src="精通STM43F4 库函数版笔记.assets/image-20221128225239851.png" alt="image-20221128225239851" style="zoom:50%;" />
+
+8. 前面7个步骤把固件库相关文件拷贝到了工程目录下，接下来需要把这些文件添加到我们的工程中去。
+
+   右击`Target1`，选择`Manage Project Items`
+
+   ![image-20221128225758509](精通STM43F4 库函数版笔记.assets/image-20221128225758509.png)
+
+9. `Project Target`一栏，将Target名字修改为`Template`，然后Groups一栏建立三个Group:`USER`、`CORE`、`FWLIB`。然后点击OK.
+
+   <img src="精通STM43F4 库函数版笔记.assets/image-20221128230052618.png" alt="image-20221128230052618" style="zoom:50%;" />![image-20221128231951805](精通STM43F4 库函数版笔记.assets/image-20221128231951805.png)
+
+
+
+10. 下面往Group里面添加我们需要的文件。进入到`Manage Project Items`对话框
+
+    * 选择`FWLIB`，然后点击右边的`Add Files`，定位到我们刚才建立的目录`FWLIB\src`下面，将里面所有的文件选中（Ctrl+A）,然后Close，就可看到Files列表下面包含我们添加的文件。
+
+      > 如果我们只用到GPIO，可以只添加stm32f4xx_gpio.c，而其他的可以不用添加，不过为了方便我们把文件都添加了进来，坏处就是工程太大，编译起来速度慢。
+
+      * 这里有个文件`stm32f4xx_fmc.c`比较特殊，这个文件是`STM32F42`和`STM32F43`才用到，所以我们这里把它删掉。
+
+        <img src="精通STM43F4 库函数版笔记.assets/image-20221128230052618.png" alt="image-20221128230052618" style="zoom:50%;" />![image-20221128231951805](精通STM43F4 库函数版笔记.assets/image-20221128231951805.png)
+
+        > 注意：删掉的是`stm32f4xx_fmc.c`而不是`stm32f4xx_fsmc.c`
+
+11. 用同样的方法，添加文件：
+
+    * `CORE` 需要添加`start_stm32f40_41xxx.s`
+
+      <img src="精通STM43F4 库函数版笔记.assets/image-20221128232638661.png" alt="image-20221128232638661" style="zoom:50%;" />![image-20221128232659299](精通STM43F4 库函数版笔记.assets/image-20221128232659299.png)
+
+    * `USER`目录下需要添加的文件为`main.c` `stm32f4xx_it.c` `system_stm32f4xx.c`
+
+      <img src="精通STM43F4 库函数版笔记.assets/image-20221128232638661.png" alt="image-20221128232638661" style="zoom:50%;" /><img src="精通STM43F4 库函数版笔记.assets/image-20221128232659299.png" alt="image-20221128232659299" style="zoom:50%;" />
+
+    添加完后：
+
+    <img src="精通STM43F4 库函数版笔记.assets/image-20221128232811882.png" alt="image-20221128232811882" style="zoom: 33%;" />
+
+12. 在MDK里面设置头文件存放路径，也就是告诉MDK到这些目录下去寻找头文件。
+
+    按照下面的步骤来添加
+
+    <img src="精通STM43F4 库函数版笔记.assets/image-20221128233009078.png" alt="image-20221128233009078" style="zoom:50%;" />
+
+    <img src="精通STM43F4 库函数版笔记.assets/image-20221128233107992.png" alt="image-20221128233107992" style="zoom:50%;" />
+
+    添加完后：
+
+    <img src="精通STM43F4 库函数版笔记.assets/image-20221128233438286.png" alt="image-20221128233438286" style="zoom:50%;" />
+
+13. 对于SM32F40系列的工程，还需要添加一个全局定义的标识符，
+
+    <img src="精通STM43F4 库函数版笔记.assets/image-20221128234149751.png" alt="image-20221128234149751" style="zoom:50%;" />
+
+    > 注意，这里是两个标识符STM32F40_41xxx和USE_STDPERIPH_DRIVER，他们之间是用逗号隔开的
+
+14. 选择输出编译后的输出目录为`OBJ`目录，同时将3个选项都勾选上
+
+    <img src="精通STM43F4 库函数版笔记.assets/image-20221128234743402.png" alt="image-20221128234743402" style="zoom:50%;" />
+
+15. 将main.c的内容替换成如下的内容：
+
+    ```.c
+    #include "stm32f4xx.h"
+    #include "usart.h"
+    #include "delay.h"
+    
+    //ALIENTEK 探索者STM32F407开发板 实验0
+    //STM32F4工程模板-库函数版本
+    //技术支持：www.openedv.com
+    //淘宝店铺：http://eboard.taobao.com
+    //广州市星翼电子科技有限公司  
+    //作者：正点原子 @ALIENTEK
+    
+    int main(void)
+    {
+    	u32 t=0;
+    	uart_init(115200);
+    	delay_init(84);
+    	
+      while(1){
+        printf("t:%d\r\n",t);
+    		delay_ms(500);
+    		t++;
+    	}
+    }
+    
+    /*
+    手册中讲解到步骤15的时候的main.c源码如下：
+    #include "stm32f4xx.h"
+    
+    //ALIENTEK 探索者STM32F407开发板 实验0
+    //STM32F4工程模板-库函数版本
+    //技术支持：www.openedv.com
+    //淘宝店铺：http://eboard.taobao.com
+    //广州市星翼电子科技有限公司  
+    //作者：正点原子 @ALIENTEK
+      
+    void Delay(__IO uint32_t nCount);
+    
+    void Delay(__IO uint32_t nCount)
+    {
+      while(nCount--){}
+    }
+    
+    int main(void)
+    {
+    
+      GPIO_InitTypeDef  GPIO_InitStructure;
+      RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOF, ENABLE);
+    
+      GPIO_InitStructure.GPIO_Pin = GPIO_Pin_9 | GPIO_Pin_10;
+      GPIO_InitStructure.GPIO_Mode = GPIO_Mode_OUT;
+      GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
+      GPIO_InitStructure.GPIO_Speed = GPIO_Speed_100MHz;
+      GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_UP;
+      GPIO_Init(GPIOF, &GPIO_InitStructure);
+    
+      while(1){
+    		GPIO_SetBits(GPIOF,GPIO_Pin_9|GPIO_Pin_10);
+    		Delay(0x7FFFFF);
+    		GPIO_ResetBits(GPIOF,GPIO_Pin_9|GPIO_Pin_10);
+    		Delay(0x7FFFFF);
+    	
+    	}
+    }
+    */
+    ```
+
+    与此同时，将USER分组下的`stm32f4xx.it.c`文件内容清空，或者删掉其中的32行对man.h头文件的引入以及144 SysTick_Handler函数内容
+
+    <img src="精通STM43F4 库函数版笔记.assets/image-20221128235133227.png" alt="image-20221128235133227" style="zoom:50%;" />
+
+    <img src="精通STM43F4 库函数版笔记.assets/image-20221128235153558.png" alt="image-20221128235153558" style="zoom:50%;" />
+
+16. 点击编译按钮编译工程，编译成功后会生成hex文件
+17. 系统时钟的配置，
+
 ### 3.4 程序下载与调试
 
 #### 3.4.2 `JLINK`下载与调试程序
