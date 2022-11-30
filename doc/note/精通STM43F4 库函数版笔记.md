@@ -701,10 +701,10 @@ GPIO端口操作对应的库函数以及相关定义在文件stm32f4xx_gpio.h和
 STM32F4每组通用I/O端口有10个32位寄存器控制，如下：
 
 * 4个32位配置寄存器（常用）
-  * MODER
-  * OTYPER
-  * OSPEEDR
-  * PUPDR
+  * MODER：GPIO端口模式控制寄存器，用于控制GPIOx的工作模式
+  * OTYPER：用于控制GPIOx的输出类型
+  * OSPEEDR：用于控制GPIOx的输出速度
+  * PUPDR：控制GPIOx的上拉/下拉
 * 2个32位数据寄存器（常用）
   * IDR
   * ODR
