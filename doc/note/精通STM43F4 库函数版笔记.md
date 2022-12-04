@@ -692,6 +692,30 @@ STM32F4下载由多种方法：
 
 **1. 工程目录结构**
 
+打开标准例程查看LED灯实验的目录结构
+
+<img src="assets/image-20221203141842752.png" alt="image-20221203141842752" style="zoom:50%;" />
+
+工程下面的组及重要文件介绍：
+
+* 组FWLIB
+  * 存放的是ST官方提供的库文件函数
+  * 每一个源文件`stm32f4xx_ppp.c`都对应一个头文件`stm32f4xx_pp.h`
+  * 可以根据需要添加和删除对应的文件
+  * 如果引入了某个源文件，要在`stm32f4xx_conf.h`中添加对应的头文件，否则工程会报错
+* 组CORE
+  * 存放固件库必须的核心文件和启动文件
+  * 这里的文件用户不需要修改
+  * 根据芯片型号选择对应的启动文件
+* 组SYSTEM
+  * `ALIENTEK`提供的公用代码（在第5章有讲解）
+* 组HARDWARE
+  * 存放每个实验的外设驱动代码，通过调用`FWLIB`下面的固件库文件实现的。比如`led.c`里面调用`stm32f4xx_gpio.c`内定义的函数对led进行初始化。
+* 组USER
+  * 存放的主要是用户代码
+  * 但`system_stm32f4xx.c`文件用户不需要修改，同时`stm32f4xx_it.c`存放的是中断服务函数（这两个文件在3.1节有讲解）
+  * `main.c`存放主函数
+
 **2. GPIO相关知识**
 
 GPIO端口操作对应的库函数以及相关定义在文件stm32f4xx_gpio.h和stm32f4xx_gpio.c中。
@@ -739,43 +763,255 @@ STM32F4的I/O可以由软件配置如下8种模式中的任何一种：
 
   GPIO端口模式控制寄存器，用于控制GPIOx(STM32F4最多有9组I/O，分别用大写字母表示，即X=A、B、C、D、E、F、G、H、I)的工作模式
 
+  * 寄存器各位描述：
+
+    <img src="assets/image-20221203144259368.png" alt="image-20221203144259368" style="zoom: 50%;" />
+
+  * 寄存器各个位在复位后，一般都是0（个别不是0，比如JTAG占用的几个IO口），也就是默认条件下一般是输入状态。
+
+  * 每2个位控制一个IO口。（每组IO口下有16个IO口）
+
 * OTYPER寄存器
 
   用于控制GPIOx的输出类型（仅用于输出模式，输入模式下不起作用）
+
+  * 寄存器各个位描述
+
+    <img src="assets/image-20221203144826811.png" alt="image-20221203144826811" style="zoom:50%;" />
+
+  * 该寄存器仅用于输出模式，在输入模式（MODER[1:0]=00/11时）下不起作用。
+
+  * 该寄存器低16位有效，每一个位控制一个IO口，复位后，该寄存器值均为0。
 
 * OSPEEDR寄存器
 
   用于控制GPIOx的输出速度（仅用于输出模式，输入模式下不起作用）
 
+  * 寄存器各个位描述
+
+    ![image-20221203145307805](assets/image-20221203145307805.png)
+
+  * 仅用于输出模式，输入模式（MODER[1:0]=00/11时）下不起作用。
+
+  * 每2个位控制一个IO口，复位后，该寄存器值一般为0
+
 * PUPDR寄存器
 
   用于控制GPIOx的上拉/下拉
-
-使用库函数初始化GPIO的配置寄存器
-
-
+  
+  * 各个位描述
+  
+    ![image-20221203145559505](assets/image-20221203145559505.png)
+  
+  * 每2个位控制一个IO口，复位后，该寄存器值一般为0。
 
 **2）GPIO输入输出电平控制相关的寄存器**
 
 * ODR寄存器
 
-  用于控制GPIOx的输出（仅用于输出模式，输入模式下不起作用）
+  用于控制GPIOx的输出高电平还是低电平（仅用于输出模式，输入模式下不起作用）
+
+  * 各个位描述
+
+    <img src="assets/image-20221203150158596.png" alt="image-20221203150158596" style="zoom:50%;" />
+
+  * 该寄存器仅在输出模式下有效，输入模式（MODER[1:0]=00/11时）下不起作用。
+
+  * 输出低电平（ODRy=0），高电平（ODRy=1）
 
 * IDR寄存器
 
   用于读取GPIOx的输入
 
+  * 各个位描述
+
+    <img src="assets/image-20221203150420819.png" alt="image-20221203150420819" style="zoom:50%;" />
+
+  * 如果对应的位为0（IDRy=0），则说明该IO输入的是低电平，如果是1（IDRy=1），则表示输入的是高电平。
+
 * BSRR寄存器
 
   置位/复位寄存器，这个寄存器用来置位或者复位I/O口
   
+  * 各个位描述：
+  
+    <img src="assets/image-20221203150819225.png" alt="image-20221203150819225" style="zoom:50%;" />
+  
   * 该寄存器ODR寄存器具有类似的作用，都可以用来设置GPIO端口的输出位是1还是0
-  * ODR寄存器要设置某个I/O电平，只需要将相关位设置为1即可。而对于ODR寄存器，要设置某个I/O口电平，需要读出来ODR寄存器的值，然后对整个ODR寄存器重新赋值来达到设置某个或者某些I/O口的目的（不过ODR可以通过位带操作来操作具体某一位），而BSRR寄存器就不需要先读取，而是直接设置。
+  * 对于低16位（0-15），往相应位写1，那么对应的IO口输出高电平，写0无效（不起作用）。
+  * 高16位（16-31）刚好相反，往相应位写1，那么对应的IO口输出低电平，写0无效。
+  * BSRR寄存器要设置某个I/O电平，只需要将相关位设置为1即可。而对于ODR寄存器，要设置某个I/O口电平，需要读出来ODR寄存器的值，然后对整个ODR寄存器重新赋值来达到设置某个或者某些I/O口的目的（不过ODR可以通过位带操作来操作具体某一位），而BSRR寄存器就不需要先读取，而是直接设置。
 
 **3） 2个复用功能选择寄存器**
 
 * AFRH
 * AFRL
+
+> 这两个寄存器的配置及相关库函数的使用在第4.4节有介绍给，这里省略
+
+**使用库函数初始化GPIO的配置寄存器**
+
+* 操作`MODER寄存器` `OTYPER寄存器` `OSPEEDR寄存器` `PUPDR寄存器`四个寄存器的初始化函数
+
+  `void GPIO_Init(GPIO_TypeDef* GPIOx, GPIO_InitTypeDef* GPIO_InitStruct)`
+
+  * 第一个参数：指定需要初始化的GPIO对应的GPIO值，取值范围为`GPIOA~GPIOK`
+
+  * 第二个参数：初始化参数结构体指针，结构体类型`GPIO_InitTypeDef`
+
+    * 结构体定义
+
+      ```c
+      typedef struct
+      {
+       uint32_t GPIO_Pin;
+       GPIOMode_TypeDef GPIO_Mode;
+       GPIOSpeed_TypeDef GPIO_Speed;
+       GPIOOType_TypeDef GPIO_OType;
+       GPIOPuPd_TypeDef GPIO_PuPd;
+      }GPIO_InitTypeDef
+      ```
+
+    * 初始化该结构体的常用格式
+
+      ```c
+      	GPIO_InitTypeDef GPIO_InitStructure;
+       	GPIO_InitStructure.GPIO_Pin = GPIO_Pin_9//GPIOF9
+       	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_OUT;//普通输出模式
+      	GPIO_InitStructure.GPIO_Speed = GPIO_Speed_100MHz;//100MHz
+       	GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;//推挽输出
+       	GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_UP;//上拉
+       	GPIO_Init(GPIOF, &GPIO_InitStructure);//初始化 GPIO
+      ```
+
+      该代码设置GPIOF的第9个端口为推挽输出模式，同时速度为100M，上拉
+
+      * 第一个成员变量`GPIO_Pin`：设置要初始化哪个或者哪些IO口。
+
+      * 第二个成员变量`GPIO_Mode`：设置IO端口的输入输出端口模式，实际就是配置`MODER`寄存器
+
+        在MDK中通过一个枚举类型定义
+
+        ```c
+        typedef enum
+        {
+         GPIO_Mode_IN = 0x00, /*!< GPIO Input Mode */
+         GPIO_Mode_OUT = 0x01, /*!< GPIO Output Mode */
+         GPIO_Mode_AF = 0x02, /*!< GPIO Alternate function Mode */
+         GPIO_Mode_AN = 0x03 /*!< GPIO Analog Mode */
+        }GPIOMode_TypeDef;
+        ```
+
+        * GPIO_Mode_IN：输入模式
+        * GPIO_Mode_OUT：输出模式
+        * GPIO_Mode_AF：符用功能模式
+        * GPIO_Mode_AN：模拟输入模式
+
+      * 第三个成员变量`GPIO_Speed`用于IO口输出速度设置，实际就是配置 `OSPEEDR`寄存器
+
+        其值在MDK中通过枚举类型定义
+
+        ```c
+        typedef enum
+        {
+         	GPIO_Low_Speed = 0x00, /*!< Low speed */
+         	GPIO_Medium_Speed = 0x01, /*!< Medium speed */
+         	GPIO_Fast_Speed = 0x02, /*!< Fast speed */
+         	GPIO_High_Speed = 0x03 /*!< High speed */
+        }GPIOSpeed_TypeDef;
+        
+        /* Add legacy definition */
+        #define GPIO_Speed_2MHz GPIO_Low_Speed
+        #define GPIO_Speed_25MHz GPIO_Medium_Speed
+        #define GPIO_Speed_50MHz GPIO_Fast_Speed
+        #define GPIO_Speed_100MHz GPIO_High_Speed 
+        ```
+
+        其值可以是GPIOSpeed_TypeDef里面的值，也可以是GPIO_Speed_2MHz之类的值
+
+      * 第4个成员变量`GPIO_OType`配置GPIO的输出类型，实际就是配置OTYPER寄存器
+
+        其值在MDK中通过枚举类型定义：
+
+        ```c
+        typedef enum
+        {
+         GPIO_OType_PP = 0x00,	//输出推挽模式
+         GPIO_OType_OD = 0x01	//输出开漏模式
+        }GPIOOType_TypeDef;
+        ```
+
+      * 第5个成员变量`GPIO_PuPd`用于设置IO口的上下拉，实际配置`PUPDR`寄存器的值
+
+        其值在MDK中通过枚举类型定义：
+
+        ```c
+        typedef enum
+        {
+         GPIO_PuPd_NOPULL = 0x00,	//不使用上下拉
+         GPIO_PuPd_UP = 0x01,	//上拉
+         GPIO_PuPd_DOWN = 0x02	//下拉
+        }GPIOPuPd_TypeDef
+        ```
+
+* `ODR`寄存器的相关操作：
+
+  * 设置`ODR`寄存器的值来控制IO口的输出状态：
+
+    `void GPIO_Write(GPIO_TypeDef* GPIOx, uint16_t PortVal);`
+
+    使用实例
+
+	  ```c
+  GPIO_Write(GPIOA,0x0000);
+	  ```
+  
+    大部分情况下，设置 IO 口我们都不用这个函数，后面我们会讲解我们常用的设置 IO 口电平的 函数。
+    
+  * 读 ODR 寄存器还可以读出 IO 口的输出状态
+  
+    ```c
+    uint16_t GPIO_ReadOutputData(GPIO_TypeDef* GPIOx);	//一次读取一组IO口所有IO口输出状态
+    uint8_t GPIO_ReadOutputDataBit(GPIO_TypeDef* GPIOx, uint16_t GPIO_Pin);	//一次读取一组IO口中一个或者几个IO口的输出状态
+    ```
+
+* `IDR`寄存器的相关操作：
+
+  读取输入电平
+
+  ```c
+  uint8_t GPIO_ReadInputDataBit(GPIO_TypeDef* GPIOx, uint16_t GPIO_Pin);	//读取一组IO 口的一个或者几个IO口输入电平
+  uint16_t GPIO_ReadInputData(GPIO_TypeDef* GPIOx);	//一次读取一组IO口所有IO口的输入电平
+  ```
+
+  比如读取GPIOF.5的输入电平
+
+  ```c
+  GPIO_ReadInputDataBit(GPIOF, GPIO_Pin_5);
+  ```
+
+* `BSRR`寄存器相关操作：
+
+  * 寄存器操作方法
+
+    ```c
+    GPIOA->BSRR=1<<1; //设置 GPIOA.1 为高电平
+    GPIOA->BSRR=1<<（16+1）//设置 GPIOA.1 为低电平
+    ```
+
+  * 库函数操作方法
+
+    ```c
+    void GPIO_SetBits(GPIO_TypeDef* GPIOx, uint16_t GPIO_Pin);	//设置一组IO口中的一个或者多个IO口为高电平
+    void GPIO_ResetBits(GPIO_TypeDef* GPIOx, uint16_t GPIO_Pin);	//设置一组IO口中一个或者多个IO口为低电平
+    ```
+
+    使用实例：
+
+    ```c
+    GPIO_SetBits(GPIOB,GPIO_Pin_5);	//GPIOB.5 输出高
+    GPIO_ResetBits(GPIOB,GPIO_Pin_5);	//GPIOB.5 输出低
+    ```
 
 **I/O操作步骤总结：**
 
@@ -785,9 +1021,33 @@ STM32F4的I/O可以由软件配置如下8种模式中的任何一种：
 
 ### 6.2 硬件设计
 
+<img src="assets/image-20221203155731786.png" alt="image-20221203155731786" style="zoom:50%;" />
+
 ### 6.3 软件设计
 
 介绍了从`Template`工程构建出`led`工程的过程，详细见书本P125页，这边就不详细记了。
+
+**0. 从Template工程构建出`led`工程**
+
+1. 拷贝实验0 Template工程模板
+
+2. 打开工程，删除`FWLIB`下不需要的文件
+
+   操作方法：在`Manage Project Items`管理界面中删除
+
+   <img src="assets/image-20221203140326406.png" alt="image-20221203140326406" style="zoom:50%;" />
+
+3. 最终剩下如下文件
+
+   <img src="assets/image-20221203135607400.png" alt="image-20221203135607400" style="zoom:50%;" />
+
+   * `stm32f4xx_rcc.h`
+     * 头文件每个实验中都要引入
+     * 系统时钟配置函数以及相关的外设时钟使能函数都在其源文件中
+   * `stm32f4xx_usart.h`和`misc.h`
+     * 在SYSTEM文件夹中都需要用到，所以每个实验都会引入
+   * `stm32f4xx_syscfg.h`
+     * 在本次实验中没用到，但是后面很多实验都会使用到，所以我们也添加进来
 
 **1. LED的初始化代码**
 
@@ -893,11 +1153,103 @@ int main(void)
 **/	
 ```
 
+## 第7章 蜂鸣器实验
+
+### 7.1 蜂鸣器简介
+
+蜂鸣器是一种一体化结构的电子讯响器，采用直流电压供电。
+
+蜂鸣器主要分为压电式蜂鸣器和电磁式蜂鸣器两种类型。
+
+蜂鸣器分为两种：
+
+* 有源蜂鸣器：自带震荡电路，一通电就会发声。
+* 无源蜂鸣器：没有自带震荡电路，必须外部提供2~5Khz左右的方波电路，才能发声。
+
+### 7.2 硬件设计
+
+本章需要用到的硬件：
+
+* 指示灯DS0
+* 蜂鸣器
+
+<img src="assets/image-20221203205057563.png" alt="image-20221203205057563" style="zoom:67%;" />
+
+* 图中用一个NPN三极管（S8050）来驱动蜂鸣器
+* R61主要用于防止蜂鸣器的误发声
+* 当PE.8输出高电平的时，蜂鸣器将发声，当PE.8输出低电平时，蜂鸣器停止发声。
+
+### 7.3 软件设计
+
+在HARDWARE中添加BEEP文件夹，并在工程中添加`beep.h`和`beep.c`文件
+
+流程：
+
+* 在`beep.c`中初始化PF8引脚，初始状态设为低电平（蜂鸣器不响）
+* 在`main.c`中调用上一节的led的引脚初始化函数（初始化PF9引脚）和beep.c中的蜂鸣器引脚初始化函数
+* 来回切换PF9和PF8的引脚状态，达到LED亮蜂鸣器不响，LED灭蜂鸣器响的效果。
+
+`beep.h`的代码如下：
+
+```c
+#ifndef __BEEP_H
+#define __BEEP_H
+#include "sys.h"
+
+#define BEEP PFout(8)	//蜂鸣器控制IO
+void BEEP_Init(void);	//初始化
+
+#endif
+```
+
+`beep.c`的代码如下：
+
+```c
+#include "beep.h"
 
 
-## 第7章 按键输入实验
+//初始化PE8为输出口
+//BEEP IO初始化
+void BEEP_Init(void)
+{
+	GPIO_InitTypeDef gpio_init;
+	RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOF, ENABLE); //使能GPIOF时钟
+	
+	gpio_init.GPIO_Pin = GPIO_Pin_8;
+	gpio_init.GPIO_Mode	= GPIO_Mode_OUT;	//普通输出模式
+	gpio_init.GPIO_Speed = GPIO_Speed_2MHz;	//2MHz
+	gpio_init.GPIO_OType = GPIO_OType_PP;	//推挽输出
+	gpio_init.GPIO_PuPd = GPIO_PuPd_DOWN;	//下拉
+	GPIO_Init(GPIOF, &gpio_init);	//初始化GPIO
+	
+	GPIO_ResetBits(GPIOF, GPIO_Pin_8);	//蜂鸣器对应引脚GPIOF8拉低，蜂鸣器不响
+}
+```
 
-### 7.1 STM32F4的I/O口简介
+`main.c`的代码如下：
+
+```c
+int main(void)
+{
+	delay_init(168);	//初始化延时函数
+	LED_Init();	//初始化LED端口
+	BEEP_Init();	//初始化蜂鸣器
+
+	while(1){
+		GPIO_ResetBits(GPIOF, GPIO_Pin_9);	//GPIOF.9拉低 灯亮
+		GPIO_ResetBits(GPIOF, GPIO_Pin_8);	//GPIOF.8拉低 蜂鸣器不响
+		delay_ms(300);	//延时300ms
+		GPIO_SetBits(GPIOF, GPIO_Pin_9);	//GPIOF.9拉高 灯灭
+		GPIO_SetBits(GPIOF, GPIO_Pin_8);	//GPIOF.10拉高 蜂鸣器响
+		delay_ms(300);	//延时300ms
+	}
+
+}
+```
+
+## 第8章 按键输入实验
+
+### 8.1 STM32F4的I/O口简介
 
 通过函数`GPIO_ReadInputDataBit()`来读取I/O状态的。
 
@@ -908,7 +1260,7 @@ int main(void)
 * `KEY1`控制`DS1`，效果同`KEY2`
 * `KEY0`同时控制`DS0`和`DS1`，按一次，它们的状态就翻转一次
 
-### 7.2 硬件设计
+### 8.2 硬件设计
 
 本实验用到的硬件资源有：
 
@@ -929,15 +1281,686 @@ int main(void)
 
 ![image-20210410160707246](assets/image-20210410160707246.png)
 
-### 7.3 软件设计
+### 8.3 软件设计
+
+在工程中加入`key.c`和`key.h`
+
+* `key.c`
+  * 加入按键对应的GPIO初始化函数
+  * 加入按键扫描函数
+* `main.c`
+  * 初始化led、蜂鸣器、按键对应的GPIO
+  * 循环扫描按键，翻转对应的LED或蜂鸣器状态
+
+详细代码：
+
+`key.h`
+
+```c
+#ifndef __KEY_H
+#define __KEY_H
+
+#include "sys.h"
+
+#define KEY0 GPIO_ReadInputDataBit(GPIOE, GPIO_Pin_4)
+#define KEY1 GPIO_ReadInputDataBit(GPIOE, GPIO_Pin_3)
+#define KEY2 GPIO_ReadInputDataBit(GPIOE, GPIO_Pin_2)
+#define WK_UP GPIO_ReadInputDataBit(GPIOA, GPIO_Pin_0)
+
+
+#define KEY0_PRES 1
+#define KEY1_PRES 2
+#define KEY2_PRES 3
+#define WKUP_PRES 4
+
+void KEY_Init(void);
+u8 KEY_Scan(u8 mode);
+
+#endif
+
+```
+
+`key.c`
+
+```c
+#include "key.h"
+#include "delay.h"
+
+void KEY_Init(void)
+{
+	GPIO_InitTypeDef gpio_init_e;
+	GPIO_InitTypeDef gpio_init_a;
+	
+	// 初始化GPIOE和GPIOA的时钟
+	RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOE|RCC_AHB1Periph_GPIOA, ENABLE);
+	
+	gpio_init_e.GPIO_Pin = GPIO_Pin_2|GPIO_Pin_3|GPIO_Pin_4;
+	gpio_init_e.GPIO_Mode = GPIO_Mode_IN;
+	gpio_init_e.GPIO_Speed = GPIO_Speed_100MHz;
+	gpio_init_e.GPIO_OType = GPIO_OType_PP;
+	gpio_init_e.GPIO_PuPd = GPIO_PuPd_UP;	//初始为上拉
+	GPIO_Init(GPIOE, &gpio_init_e);
+	
+	gpio_init_a.GPIO_Pin = GPIO_Pin_0;
+	gpio_init_a.GPIO_Mode = GPIO_Mode_IN;
+	gpio_init_a.GPIO_Speed = GPIO_Speed_100MHz;
+	gpio_init_a.GPIO_OType = GPIO_OType_PP;
+	gpio_init_a.GPIO_PuPd = GPIO_PuPd_DOWN;	//初始化为下拉
+	GPIO_Init(GPIOA, &gpio_init_a);
+}
+
+
+//按键处理函数
+//返回按键值
+//mode 0 不支持连续按; 1 支持连续按
+// 0没有按键按下 KEY0 KEY0_PRES; KEY1 KEY1_PRES; KEY2 KEY2_PRES; KEY_WKUP WKUP_PRES
+// 注意：此函数有响应优先级，KEY0>KEY1>KEY2>KEY_WKUP
+u8 KEY_Scan(u8 mode)
+{
+	static u8 key_up = 1;	//按照松开标志;0 按下 1松开
+	if(mode) key_up = 1;
+	
+	if(key_up && (KEY0==0 || KEY1==0 || KEY2==0 || WK_UP==1)){
+		delay_ms(10);	//去抖动
+		key_up = 0;
+		if(KEY0 == 0) return KEY0_PRES;
+		else if(KEY1 == 0) return KEY1_PRES;
+		else if(KEY2 == 0) return KEY2_PRES;
+		else if(WK_UP == 1) return WKUP_PRES;
+	
+	}
+	else if(KEY0==1 && KEY1==1 && KEY2==1 && WK_UP==0){
+		key_up = 1;
+	}
+	return 0;//没有按键按下
+}
+
+```
+
+`main.c`
+
+```c
+int main(void)
+{
+	u8 key;	//保存键值
+	delay_init(168);	//初始化延时函数
+	LED_Init();	//初始化LED端口
+	BEEP_Init();	//初始化蜂鸣器
+	KEY_Init();	//初始化按键
+
+	LED0 = 0; //先点亮红灯
+	while(1){
+		key = KEY_Scan(0);
+		if(key){
+			switch(key){
+				case WKUP_PRES: 	//控制蜂鸣器
+					BEEP =! BEEP;
+					break;
+				case KEY0_PRES:		//控制LED0翻转
+					LED0 =! LED0;
+					break;
+				case KEY1_PRES:		//控制LED1翻转
+					LED1 =! LED1;
+					break;
+				case KEY2_PRES:		//控制LED0 LED1翻转
+					LED0 =! LED0;
+					LED1 =! LED1;
+					break;		
+			}
+		}else{
+			delay_ms(10);
+		}
+	}
+
+}
+
+```
+
+### 8.4 下载验证
 
 略
 
-### 7.4 下载验证
+## 第9章 串口通信实验
 
-略
+本章实验：STM32F4通过串口和上位机对话，STM32F4在收到上位机发过来的字符串后，原原本本的返回给上位机。
+
+### 9.1 STM32F4串口简介
+
+STM32F407ZGT6最多可提供6路串口，有分数波特率发生器、支持同步单线通信和半双工单线通信、支持LIN、支持调整解调器操作、智能卡协议和IrDA SIR ENDEC规范、DMA等。
+
+探索者STM32F4开发板板载了1个USB串口和2个R232串口。
+
+串口设置的一般步骤：
+
+* 串口时钟使能，GPIO时钟使能
+* 设置引脚复用器映射：调用`GPIO_PinAFConfig`函数
+* GPIO初始化设置：要设置模式为复用功能
+* 串口参数初始化：设置波特率，字长，奇偶校验等参数
+* 开启中断并初始化NVIC，使能中断（如果需要开启中断才需要这个步骤）
+* 使能串口
+* 编写中断处理函数：函数名格式为USARTxIRQHandler（x对应串口号）
+
+相关库函数操作：
+
+**1. 串口时钟和GPIO时钟使能**
+
+* 串口是挂载在APB2下面的外设，使能函数为：
+
+	```c
+RCC_APB2PeriphClockCmd(RCC_APB2Periph_USART1,ENABLE);//使能 USART1 时钟
+	```
+	
+* 使能GPIOA时钟
+
+  ```c
+  RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOA,ENABLE); //使能 GPIOA 时钟
+  ```
+
+**2. 设置引脚复用器映射**
+
+```c
+GPIO_PinAFConfig(GPIOA,GPIO_PinSource9,GPIO_AF_USART1); //PA9 复用为 USART1
+GPIO_PinAFConfig(GPIOA,GPIO_PinSource10,GPIO_AF_USART1);//PA10 复用为 USART1
+```
+
+串口使用到PA9和PA10，所以把它们映射到串口1。
+
+**3. GPIO端口模式设置：PA9和PA10要设置为复用功能**
+
+```c
+GPIO_InitStructure.GPIO_Pin = GPIO_Pin_9 | GPIO_Pin_10; //GPIOA9 与 GPIOA10
+GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF;//复用功能
+GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz; //速度 50MHz
+GPIO_InitStructure.GPIO_OType = GPIO_OType_PP; //推挽复用输出
+GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_UP; //上拉
+GPIO_Init(GPIOA,&GPIO_InitStructure); //初始化 PA9，PA10
+```
+
+**4. 串口参数初始化：设置波特率、字长、奇偶校验等参数**
+
+串口初始化调用函数USART_Init来实现：
+
+```c
+USART_InitStructure.USART_BaudRate = bound;//一般设置为 9600;
+USART_InitStructure.USART_WordLength = USART_WordLength_8b;//字长为 8 位数据格式
+USART_InitStructure.USART_StopBits = USART_StopBits_1;//一个停止位
+USART_InitStructure.USART_Parity = USART_Parity_No;//无奇偶校验位
+USART_InitStructure.USART_HardwareFlowControl = USART_HardwareFlowControl_None;
+USART_InitStructure.USART_Mode = USART_Mode_Rx | USART_Mode_Tx;//收发模式
+USART_Init(USART1, &USART_InitStructure); //初始化串口
+```
+
+**5. 使能串口**
+
+```c
+USART_Cmd(USART1, ENABLE); //使能串口
+```
+
+**6. 串口数据发送与接收**
+
+数据寄存器`USART_DR`
+
+* STM32F4的发送与接收是通过数据寄存器USART_DR来实现的，这是一个双寄存器，包含了TDR和RDR。
+
+* 当向该寄存器写数据的时候，串口就会自动发送
+
+* 当收到数据的时候，也是存在该寄存器内。
+
+* 操作USART_DR寄存器发送数据的函数是
+
+  `void USART_SendData(USART_TypeDef* USARTx, uint16_t Data);`
+
+* 操作USART_DR寄存器读取串口接收到的数据的函数是
+
+  `uint16_t USART_ReceiveData(USART_TypeDef* USARTx);`
+
+**7. 串口状态**
+
+串口的状态可以通过状态寄存器USART_SR读取。
+
+USART_SR各位描述
+
+<img src="assets/image-20221204130116341.png" alt="image-20221204130116341" style="zoom:50%;" />
+
+这里只关注两位（其他位查看中文查看手册），第5、6位RXNE和TC。
+
+* RXNE（读数据寄存器非空）
+  * 当该位被置1，表示已经有数据被接收到，并且可以读出来，这时需要尽快去读取USART_DR。
+  * 两种清零方式：
+    * 通过读USART_DR可以将该位清零
+    * 也可以向该位写0，直接清除。
+* TC（发送完成）
+  * 当该位被置位的时候，表示USART_DR内的数据已经被发送完成。如果设置了这个位的中断，则会产生中断。
+  * 两种清零方式：
+    * 读USART_SR，写USART_DR
+    * 直接向该位写0
+
+读串口状态的函数：
+
+* `FlagStatus USART_GetFlagStatus(USART_TypeDef* USARTx, uint16_t USART_FLAG)；`
+
+  * 第二个参数指示要查看串口的哪种状态，比如上面讲解的RXNE（读取数据寄存器非空）以及TC（发送完成）
+
+  * 判断读寄存器是否非空（RXNE）
+
+    ```c
+    USART_GetFlagStatus(USART1, USART_FLAG_RXNE);
+    ```
+
+  * 判断发送是否完成（TC）
+
+    ```c
+    USART_GetFlagStatus(USART1, USART_FLAG_TC);
+    ```
+
+  * 标识号在MDK里面通过宏定义的
+
+    ```c
+    #define USART_IT_PE ((uint16_t)0x0028)
+    #define USART_IT_TC ((uint16_t)0x0626)
+    #define USART_IT_RXNE ((uint16_t)0x0525)
+    ……//(省略部分代码)
+    #define USART_IT_NE ((uint16_t)0x0260)
+    #define USART_IT_FE ((uint16_t)0x0160)
+    ```
+
+**8. 开启中断并初始化NVIC，使能相应中断**
+
+使用函数`NVIC_Init`来配置NVIC中断优先级分组
+
+```c
+NVIC_InitStructure.NVIC_IRQChannel = USART1_IRQn;
+NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority=3;//抢占优先级 3
+NVIC_InitStructure.NVIC_IRQChannelSubPriority =3; //响应优先级 3
+NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE; //IRQ 通道使能
+NVIC_Init(&NVIC_InitStructure); //根据指定的参数初始化 VIC 寄存器
+```
+
+使能串口中断的函数是
+
+```c
+void USART_ITConfig(USART_TypeDef* USARTx, uint16_t USART_IT,
+FunctionalState NewState)
+```
+
+* 第二个参数：使能串口的类型（串口的中断类型有很多种），比如
+
+  * 在接收到数据的时候（RXNE读数据寄存器非空），我们要产生中断，开启中断的方法是：
+
+    ```c
+    USART_ITConfig(USART1, USART_IT_RXNE, ENABLE);//开启中断，接收到数据中断
+    ```
+
+  * 在发生数据结束的时候（TC，发送完成）要产生中断，方法是：
+
+    ```c
+    USART_ITConfig(USART1，USART_IT_TC，ENABLE);
+    ```
+
+> 注：因为该实验开启了串口中断，所以在系统初始化的时候需要先设置系统的中断优先级分组，在main函数的开头，设置
+>
+> `NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2);//设置系统中断优先级分组 2`
+
+**9. 获取相应中断状态**
+
+在中断函数中判断是哪种中断触发的，使用函数
+
+```c
+ITStatus USART_GetITStatus(USART_TypeDef* USARTx, uint16_t USART_IT)
+```
+
+比如判断是否为串口1触发了中断：
+
+```c
+USART_GetITStatus(USART1, USART_IT_TC)
+```
+
+触发时，返回值时SET
+
+**10 中断服务函数**
+
+串口1的中断服务函数为：
+
+```c
+void USART1_IRQHandler(void);
+```
+
+### 9.2 硬件设计
+
+使用到的硬件资源：
+
+* 指示灯DS0
+* 串口1
+
+开发板的串口1与USB串口并没有在PCB上连接在一起，需要通过跳线帽来连接。把P6的RXD和TXD用跳线帽与PA9和PA10连接起来。
+
+<img src="assets/image-20221204134316581.png" alt="image-20221204134316581" style="zoom:67%;" />
+
+### 9.3 软件设计
+
+串口初始化代码和接收代码用的是STSTEM文件夹下串口部分的内容。
+
+`usart.c`下的`uart_init()`函数
+
+```c
+//初始化IO 串口1 
+//bound:波特率
+void uart_init(u32 bound){
+   //GPIO端口设置
+  GPIO_InitTypeDef GPIO_InitStructure;
+	USART_InitTypeDef USART_InitStructure;
+	NVIC_InitTypeDef NVIC_InitStructure;
+	
+	RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOA,ENABLE); //使能GPIOA时钟
+	RCC_APB2PeriphClockCmd(RCC_APB2Periph_USART1,ENABLE);//使能USART1时钟
+ 
+	//串口1对应引脚复用映射
+	GPIO_PinAFConfig(GPIOA,GPIO_PinSource9,GPIO_AF_USART1); //GPIOA9复用为USART1
+	GPIO_PinAFConfig(GPIOA,GPIO_PinSource10,GPIO_AF_USART1); //GPIOA10复用为USART1
+	
+	//USART1端口配置
+  GPIO_InitStructure.GPIO_Pin = GPIO_Pin_9 | GPIO_Pin_10; //GPIOA9与GPIOA10
+	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF;//复用功能
+	GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;	//速度50MHz
+	GPIO_InitStructure.GPIO_OType = GPIO_OType_PP; //推挽复用输出
+	GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_UP; //上拉
+	GPIO_Init(GPIOA,&GPIO_InitStructure); //初始化PA9，PA10
+
+   //USART1 初始化设置
+	USART_InitStructure.USART_BaudRate = bound;//波特率设置
+	USART_InitStructure.USART_WordLength = USART_WordLength_8b;//字长为8位数据格式
+	USART_InitStructure.USART_StopBits = USART_StopBits_1;//一个停止位
+	USART_InitStructure.USART_Parity = USART_Parity_No;//无奇偶校验位
+	USART_InitStructure.USART_HardwareFlowControl = USART_HardwareFlowControl_None;//无硬件数据流控制
+	USART_InitStructure.USART_Mode = USART_Mode_Rx | USART_Mode_Tx;	//收发模式
+  USART_Init(USART1, &USART_InitStructure); //初始化串口1
+	
+  USART_Cmd(USART1, ENABLE);  //使能串口1 
+	
+	//USART_ClearFlag(USART1, USART_FLAG_TC);
+	
+#if EN_USART1_RX	
+	USART_ITConfig(USART1, USART_IT_RXNE, ENABLE);//开启相关中断
+
+	//Usart1 NVIC 配置
+  NVIC_InitStructure.NVIC_IRQChannel = USART1_IRQn;//串口1中断通道
+	NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority=3;//抢占优先级3
+	NVIC_InitStructure.NVIC_IRQChannelSubPriority =3;		//子优先级3
+	NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;			//IRQ通道使能
+	NVIC_Init(&NVIC_InitStructure);	//根据指定的参数初始化VIC寄存器、
+
+#endif
+}
+```
+
+该代码实现：
+
+* 串口时钟使能，GPIO时钟使能
+* 设置引脚复用器映射
+* GPIO端口初始化设置
+* 串口参数初始化
+* 初始化NVIC并且开启中断
+* 使能串口
+
+串口中断代码
+
+```c
+void USART1_IRQHandler(void)                	//串口1中断服务程序
+{
+	u8 Res;
+#if SYSTEM_SUPPORT_OS 		//如果SYSTEM_SUPPORT_OS为真，则需要支持OS.
+	OSIntEnter();    
+#endif
+	if(USART_GetITStatus(USART1, USART_IT_RXNE) != RESET)  //接收中断(接收到的数据必须是0x0d 0x0a结尾)
+	{
+		Res =USART_ReceiveData(USART1);//(USART1->DR);	//读取接收到的数据
+		
+		if((USART_RX_STA&0x8000)==0)//接收未完成
+		{
+			if(USART_RX_STA&0x4000)//接收到了0x0d
+			{
+				if(Res!=0x0a)USART_RX_STA=0;//接收错误,重新开始
+				else USART_RX_STA|=0x8000;	//接收完成了 
+			}
+			else //还没收到0X0D
+			{	
+				if(Res==0x0d)USART_RX_STA|=0x4000;
+				else
+				{
+					USART_RX_BUF[USART_RX_STA&0X3FFF]=Res ;
+					USART_RX_STA++;
+					if(USART_RX_STA>(USART_REC_LEN-1))USART_RX_STA=0;//接收数据错误,重新开始接收	  
+				}		 
+			}
+		}   		 
+  } 
+#if SYSTEM_SUPPORT_OS 	//如果SYSTEM_SUPPORT_OS为真，则需要支持OS.
+	OSIntExit();  											 
+#endif
+}
+```
+
+`main.c`的代码
+
+```c
+int main(void)
+{ 
+	u8 t;
+	u8 len;	
+	u16 times=0;  
+	NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2);//设置系统中断优先级分组2
+	delay_init(168);		//延时初始化 
+	uart_init(115200);	//串口初始化波特率为115200
+	LED_Init();		  		//初始化与LED连接的硬件接口  
+	while(1)
+	{
+		if(USART_RX_STA&0x8000)
+		{					   
+			len=USART_RX_STA&0x3fff;//得到此次接收到的数据长度
+			printf("\r\n您发送的消息为:\r\n");
+			for(t=0;t<len;t++)
+			{
+				USART_SendData(USART1, USART_RX_BUF[t]);         //向串口1发送数据
+				while(USART_GetFlagStatus(USART1,USART_FLAG_TC)!=SET);//等待发送结束
+			}
+			printf("\r\n\r\n");//插入换行
+			USART_RX_STA=0;
+		}else
+		{
+			times++;
+			if(times%5000==0)
+			{
+				printf("\r\nALIENTEK 探索者STM32F407开发板 串口实验\r\n");
+				printf("正点原子@ALIENTEK\r\n\r\n\r\n");
+			}
+			if(times%200==0)printf("请输入数据,以回车键结束\r\n");  
+			if(times%30==0)LED0=!LED0;//闪烁LED,提示系统正在运行.
+			delay_ms(10);   
+		}
+	}
+}
+```
+
+### 9.4 下载验证
+
+* 打开串口助手`XCOM V2.0`，设置串口为开发板的USB转串口，波特率为115200
+* 勾选`发送新行`
+
+<img src="assets/image-20221204192705598.png" alt="image-20221204192705598" style="zoom:50%;" />
 
 
+
+## 第10章 外部中断实验
+
+本章介绍
+
+* 如何将STM32F4的IO口作为外部中断输入
+* 以中断的方式实现第8章（按键输入实验）所实现的功能
+
+### 10.1 STM32F4外部中断简介
+
+本章相关的固件库代码在`stm32f4xx_exti.h`和`stm32f4xx_exti.c`。
+
+**STM32F4 IO口中断的一些基本概念**
+
+* STM32F4的每个IO口都可以作为外部中断的中断输入口。
+
+* STM32F407的中断控制器支持22个外部中断/事件请求
+
+* 每个中断设有状态位，每个中断/事件都有独立的触发和屏蔽设置。
+
+* STM32F407的22个外部中断为：
+
+  * EXTI线0~15：对应外部IO口的输入中断。
+  * EXTI 线 16：连接到 PVD 输出。 
+  * EXTI 线 17：连接到 RTC 闹钟事件。
+  *  EXTI 线 18：连接到 USB OTG FS 唤醒事件。 
+  * EXTI 线 19：连接到以太网唤醒事件。
+  *  EXTI 线 20：连接到 USB OTG HS(在 FS 中配置)唤醒事件。
+  *  EXTI 线 21：连接到 RTC 入侵和时间戳事件。
+  *  EXTI 线 22：连接到 RTC 唤醒事件。
+
+* STM32F4供IO口使用的中断线只有16个，IO口却不只16个，如何把16个中断线和IO口一一对应：
+
+  * GPIO的管脚GPIOx.0~GPIOx.15（x=A,B,C,D,E,F,G,H,I）分别对应中断线0~15。
+
+  * 每个中断线对应了最多9个IO口，以线0为例：它对应对了GPIOA.0、GPIOB.0、GPIOC.0、GPIOD.0、GPIOE.0、GPIOF.0、GPIOG.0、GPIOH.0、GPIOI.0。
+
+  * 中断线每次只能连接到1个IO口上，需要通过配置来决定对应的中断线配置到哪个GPIO上。
+
+  * GPIO跟中断线的映射关系图：
+
+    <img src="assets/image-20221204200935532.png" alt="image-20221204200935532" style="zoom:50%;" />
+
+**使用库函数配置外部中断的步骤：**
+
+**1. 使能IO口时钟，初始化IO口为输入**
+
+**2. 开启SYSCFG时钟，设置IO口与中断线的映射关系**
+
+使用外部中断必须打开SYSCFG时钟
+
+```c
+RCC_APB2PeriphClockCmd(RCC_APB2Periph_SYSCFG, ENABLE);//使能 SYSCFG 时钟
+```
+
+配置GPIO与中断线的映射关系：
+
+```c
+void SYSCFG_EXTILineConfig(uint8_t EXTI_PortSourceGPIOx, uint8_t EXTI_PinSourcex);
+```
+
+使用范例是：
+
+```c
+SYSCFG_EXTILineConfig(EXTI_PortSourceGPIOA, EXTI_PinSource0);
+```
+
+**3. 初始化线上中断，设置触发条件等**
+
+中断的初始化函数`EXTI_Init()`实现
+
+`void EXTI_Init(EXTI_InitTypeDef* EXTI_InitStruct);`
+
+使用范例：
+
+设置中断线4上的中断为下降沿触发：
+
+```c
+ EXTI_InitTypeDef EXTI_InitStructure;
+ EXTI_InitStructure.EXTI_Line=EXTI_Line4;
+ EXTI_InitStructure.EXTI_Mode = EXTI_Mode_Interrupt;
+ EXTI_InitStructure.EXTI_Trigger = EXTI_Trigger_Falling;
+ EXTI_InitStructure.EXTI_LineCmd = ENABLE;
+ EXTI_Init(&EXTI_InitStructure); //初始化外设 EXTI 寄存器
+```
+
+结构体`EXTI_InitTypeDef`
+
+```c
+typedef struct
+{ uint32_t EXTI_Line;
+ EXTIMode_TypeDef EXTI_Mode;
+ EXTITrigger_TypeDef EXTI_Trigger;
+ FunctionalState EXTI_LineCmd;
+}EXTI_InitTypeDef;
+```
+
+* 第一个参数：中断线的标号，对于外部中断，取值范围为`EXTI_Line0~EXTI_Line15`。
+* 第二个参数：中断模式，可选值为中断`EXTI_Mode_Interrupt`和事件`EXTI_Mode_Event`
+* 第三个参数：触发方式：
+  * 下降沿触发`EXTI_Trigger_Falling`
+  * 上升沿触发`EXTI_Trigger_Rising`
+  * 任意电平（上升沿和下降沿）触发`EXTI_Trigger_Rising_Falling`
+
+**4. 配置中断分组（NVIC），并使能中断**
+
+涉及到中断，还要设置NVIC中断优先级，如下设置中断线2的中断优先级
+
+```c
+NVIC_InitTypeDef NVIC_InitStructure;
+NVIC_InitStructure.NVIC_IRQChannel = EXTI2_IRQn; //使能按键外部中断通道
+NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 0x02; //抢占优先级 2，
+NVIC_InitStructure.NVIC_IRQChannelSubPriority = 0x02; //响应优先级 2
+NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE; //使能外部中断通道
+NVIC_Init(&NVIC_InitStructure); //中断优先级分组初始化
+```
+
+**5. 编写中断服务函数**
+
+中断服务函数的名字在MDK中事先有定义，STM32F4的IO口外部中断函数只有7个，分别是：
+
+```c
+EXPORT EXTI0_IRQHandler
+EXPORT EXTI1_IRQHandler
+EXPORT EXTI2_IRQHandler
+EXPORT EXTI3_IRQHandler
+EXPORT EXTI4_IRQHandler
+EXPORT EXTI9_5_IRQHandler
+EXPORT EXTI15_10_IRQHandler
+```
+
+* 中断线0-4每个中断线对应一个中断函数
+
+* 中断线5-9共用中断函数`EXTI9_5_IRQHandler`
+
+* 中断线10-15共用中断函数`EXTI15_10_IRQHandler`
+
+* 编写中断服务函数的时候会经常使用到两个函数：
+
+  * 判断某个中断线上的中断是否发生（标志位是否置位）
+
+    `ITStatus EXTI_GetITStatus(uint32_t EXTI_Line)`
+
+    这个函数一般使用在中断服务函数的开头判断中断是否发生。
+
+  * 清除某个中断线上的中断标志位
+
+    `void EXTI_ClearITPendingBit(uint32_t EXTI_Line);`
+
+    这函数一般应用在中断服务函数结束之前，清除中断标志位
+
+  > 固件库还提供了两个函数来判断外部中断状态以及清除外部状态标志位的函数`EXTI_GetITStatus`和`EXTI_ClearFlag`，他们的作用和前面两个函数类似，只是在`EXTI_GetITStatus`函数会先判断这种中断是否使能，使能了才去判断中断标志位，而`EXTI_GetFlagStatus`直接用来判断状态标志位。
+
+* 常用的中断服务函数格式为：
+
+  ```c
+  void EXTI3_IRQHandler(void)
+  {
+  	if(EXTI_GetITStatus(EXTI_Line3)!=RESET)//判断Ḁ个线上的中断是否发生
+  	{ …中断逻辑…
+  		EXTI_ClearITPendingBit(EXTI_Line3); //清除 LINE 上的中断标志位
+  	}
+  }
+  ```
+
+**使用IO口外部中断的一般步骤：**
+
+* 使能IO口时钟，初始化IO口为输入
+* 使能SYSCFG时钟，设置IO口与中断先的映射关系
+* 初始化线上中断，设置触发条件等
+* 配置中断分组（NVIC），并使能中断
+* 编写中断服务函数
 
 
 
