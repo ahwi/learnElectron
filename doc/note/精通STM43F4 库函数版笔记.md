@@ -1852,6 +1852,8 @@ void SYSCFG_EXTILineConfig(uint8_t EXTI_PortSourceGPIOx, uint8_t EXTI_PinSourcex
 
 使用范例是：
 
+中断线0与GPIOA映射起来，所以显然是GPIOA.0与EXTI1中断线连接了。
+
 ```c
 SYSCFG_EXTILineConfig(EXTI_PortSourceGPIOA, EXTI_PinSource0);
 ```
@@ -1961,6 +1963,178 @@ EXPORT EXTI15_10_IRQHandler
 * 初始化线上中断，设置触发条件等
 * 配置中断分组（NVIC），并使能中断
 * 编写中断服务函数
+
+### 10.2 硬件设计
+
+用到的硬件与第8章一样，用到的硬件有：
+
+* 指示灯`DS0` `DS1`
+
+* 蜂鸣器
+
+* 4个按键：
+
+  * `KEY0`（连接在`PE4`）
+  * `KEY1`（连接在`PE3`）
+  * `KEY2`（连接在`PE2`）
+  * `KEY_UP`（连接在`PA0`）
+
+  注意：`KEY0` `KEY1`和`KEY2`是低电平有效的，而`KEY_UP`是高电平有效的，并且外部都没有上下拉电阻，所以，需要在STM32F4内设置上下拉
+
+按键与STM32F4的连接原理图如下：
+
+![image-20210410160707246](assets/image-20210410160707246.png)
+
+### 10.3 软件设计
+
+本章实现的效果：
+
+* KEY_UP控制蜂鸣器
+* KEY2控制DS0
+* KEY1控制DS1
+* KEY0控制DS0和DS1
+
+在HEARDWARE目录下增加`exti.c`和`exti.h`，同时固件库目录增加了`stm32f4xx_exti.c`文件
+
+`exti.c`文件包含了5个函数：
+
+* `void EXTIX_Init(void)`外部中断初始化函数
+
+* `void EXTI0_IRQHandler(void)`是外部中断0的服务函数，负责WK_UP按键的中断检测
+* `void EXTI2_IRQHandler(void)`是外部中断2的服务函数，负责KEY2按键的中断检测
+* `void EXTI3_IRQHandler(void)`是外部中断3的服务函数，负责KEY1按键的中断检测
+* `void EXTI4_IRQHandler(void)`是外部中断4的服务函数，负责KEY0按键的中断检测
+
+`exti.c`代码如下：
+
+```c
+//外部中断0服务程序
+void EXTI0_IRQHandler(void)
+{
+	delay_ms(10);	//消抖
+	if(WK_UP ==1){
+		BEEP = !BEEP;	//蜂鸣器反转
+	}
+	EXTI_ClearITPendingBit(EXTI_Line0);	//清除LINE0上的中断标志
+}
+
+//外部中断2服务程序
+void EXTI2_IRQHandler(void)
+{
+	delay_ms(10);	//消抖
+	if(KEY2 ==1){
+		LED0 = !LED0;	
+	}
+	EXTI_ClearITPendingBit(EXTI_Line2);	//清除LINE2上的中断标志
+}
+
+//外部中断3服务程序
+void EXTI3_IRQHandler(void)
+{
+	delay_ms(10);	//消抖
+	if(KEY1 ==1){
+		LED1 = !LED1;
+	}
+	EXTI_ClearITPendingBit(EXTI_Line3);	//清除LINE3上的中断标志
+}
+
+//外部中断4服务程序
+void EXTI4_IRQHandler(void)
+{
+	delay_ms(10);	//消抖
+	if(KEY0 ==1){
+		LED0 = !LED0;
+		LED1 = !LED1;
+	}
+	EXTI_ClearITPendingBit(EXTI_Line4);	//清除LINE4上的中断标志
+}
+	
+//外部中断初始化程序
+//初始化PE2~4，PA0为中断输入
+void EXTIX_Init(void)
+{
+	EXTI_InitTypeDef EXTI_InitStruct;
+	NVIC_InitTypeDef NVIC_InitStruct;
+	
+	KEY_Init();	//按键对应的IO口初始化
+	
+	RCC_APB2PeriphClockCmd(RCC_APB2Periph_SYSCFG, ENABLE);	//使能SYSCFG时钟
+
+	SYSCFG_EXTILineConfig(EXTI_PortSourceGPIOE, EXTI_PinSource2);	//PE2连接到中断线2
+	SYSCFG_EXTILineConfig(EXTI_PortSourceGPIOE, EXTI_PinSource3);	//PE3连接到中断线3
+	SYSCFG_EXTILineConfig(EXTI_PortSourceGPIOE, EXTI_PinSource4);	//PE4连接到中断线4
+	SYSCFG_EXTILineConfig(EXTI_PortSourceGPIOA, EXTI_PinSource0);	//PA0连接到中断线0
+	
+	/* 配置EXTI_Line2,3,4 */
+	EXTI_InitStruct.EXTI_Line = EXTI_Line2|EXTI_Line3|EXTI_Line4;
+	EXTI_InitStruct.EXTI_Mode = EXTI_Mode_Interrupt;	//中断事件
+	EXTI_InitStruct.EXTI_Trigger = EXTI_Trigger_Falling; //下降沿触发
+	EXTI_InitStruct.EXTI_LineCmd = ENABLE;	//中断线使能
+	EXTI_Init(&EXTI_InitStruct);	//配置
+	
+	/* 配置EXTI_Line1 */
+	EXTI_InitStruct.EXTI_Line = EXTI_Line0;
+	EXTI_InitStruct.EXTI_Mode = EXTI_Mode_Interrupt;	//中断事件
+	EXTI_InitStruct.EXTI_Trigger = EXTI_Trigger_Rising;	//上升沿触发
+	EXTI_InitStruct.EXTI_LineCmd = ENABLE;	//中断线使能
+	EXTI_Init(&EXTI_InitStruct);	//配置
+	
+	NVIC_InitStruct.NVIC_IRQChannel = EXTI2_IRQn;	//外部中断2
+	NVIC_InitStruct.NVIC_IRQChannelPreemptionPriority = 0x03;	//抢占优先级3
+	NVIC_InitStruct.NVIC_IRQChannelSubPriority = 0x02;	//子优先级2
+	NVIC_InitStruct.NVIC_IRQChannelCmd = ENABLE;	//使能外部中断通道
+	NVIC_Init(&NVIC_InitStruct);
+	
+	NVIC_InitStruct.NVIC_IRQChannel = EXTI3_IRQn;	//外部中断3
+	NVIC_InitStruct.NVIC_IRQChannelPreemptionPriority = 0x02;	//抢占优先级2
+	NVIC_InitStruct.NVIC_IRQChannelSubPriority = 0x02;	//子优先级2
+	NVIC_InitStruct.NVIC_IRQChannelCmd = ENABLE;	//使能外部中断通道
+	NVIC_Init(&NVIC_InitStruct);
+	
+	NVIC_InitStruct.NVIC_IRQChannel = EXTI4_IRQn;	//外部中断4
+	NVIC_InitStruct.NVIC_IRQChannelPreemptionPriority = 0x01;	//抢占优先级1
+	NVIC_InitStruct.NVIC_IRQChannelSubPriority = 0x02;	//子优先级2
+	NVIC_InitStruct.NVIC_IRQChannelCmd = ENABLE;	//使能外部中断通道
+	NVIC_Init(&NVIC_InitStruct);
+	
+	NVIC_InitStruct.NVIC_IRQChannel = EXTI0_IRQn;	//外部中断0
+	NVIC_InitStruct.NVIC_IRQChannelPreemptionPriority = 0x00;	//抢占优先级0
+	NVIC_InitStruct.NVIC_IRQChannelSubPriority = 0x02;	//子优先级2
+	NVIC_InitStruct.NVIC_IRQChannelCmd = ENABLE;	//使能外部中断通道
+	NVIC_Init(&NVIC_InitStruct);
+}
+```
+
+* KEY_UP按键是高电平有效，而KEY0、KEY1和KEY2是低电平有效，所以设置KEY_UP为上升沿触发中断，而KEY0、KEY1和KEY2则设置为下降沿触发。
+* 在对应的中断翻转蜂鸣器或者LED灯的状态。
+
+main函数代码如下：
+
+```c
+int main(void)
+{
+	NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2);	//设置系统中断优先级分组2
+	delay_init(168);	//初始化延时函数
+	uart_init(115200);	//串口初始化
+	LED_Init();	//初始化LED端口
+	BEEP_Init();	//初始化蜂鸣器端口
+	EXTIX_Init();	//初始化外部中断输入
+	LED0 = 0;	//先点亮红灯
+	while(1)
+	{
+		printf("OK\r\n");	//打印OK提示程序运行
+		delay_ms(1000);		//每隔1s打印一次
+	}
+}
+```
+
+### 10.4 下载验证
+
+按下四个按键翻转LED或蜂鸣器的状态
+
+串口调试助手可以看到如下的信息
+
+<img src="精通STM43F4 库函数版笔记.assets/image-20221205235619710.png" alt="image-20221205235619710" style="zoom:50%;" />
 
 
 
