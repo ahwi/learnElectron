@@ -2136,7 +2136,294 @@ int main(void)
 
 <img src="精通STM43F4 库函数版笔记.assets/image-20221205235619710.png" alt="image-20221205235619710" style="zoom:50%;" />
 
+## 第十一章 独立看门狗（IWDG）实验
 
+暂时略过
+
+## 第十二章 窗口看门狗（WWDG）实验
+
+暂时略过
+
+## 第十三章 定时器中断实验
+
+STM32F4定时器功能十分强大，总共有14个定时器：
+
+* TIME1和TIME8等高级定时器
+* TIME2~TIME5，IMTE9~TIME14等通用定时器
+* TIME6和TIME7等基本定时器
+
+本章实现的功能：使用TIM3的定时器中断来控制DS1的翻转，在主函数用DS0的翻转来提示程序正在运行。
+
+### 13.1 STM32F4通用定时器简介
+
+STM32F4的通用定时器可被用于：
+
+* 测量输入信号的脉冲长度（输入捕获）
+* 产生输出波形（输出比较和PWM）
+
+使用定时器预分频器和RCC时钟控制器预分频器，脉冲长度和波形周期可以在几个微妙和几个毫秒间调整。
+
+STM32F4的每个通用定时器都是完全独立的，没有互相共享的任何资源。
+
+**STM32的通用定时器功能包括：**
+
+* 16位/32位（仅TIM2和TIM5）向上、向下、向上/向下自动重装载<font color=red>计数器（TIMx_CNT）</font>,注意：TIM9~TIM14只支持向上（递增）计数方式
+* 16位可编程（可实时修改）<font color=red>预分频器（TIMx_PSC）</font>，计数器时钟频率的分频系数位1~65535之间的任意数值。
+* 4个<font color=red>独立通道（TIMx_CH1~4</font>，TIM9~TIM14最多2个通道），这些通道可以用来作为：
+  * 输入捕获
+  * 输出比较
+  * PWM生成（边缘或中间对齐模式），注意：TIM9~TIM14不支持中间对齐模式
+  * 单脉冲模式输出
+* 可以使用外部信号（TIMx_ETR）控制定时器和定时器互连（可以用1个定时器控制另外一个定时器）的同步电路
+* 如下事件产生时产生中断/DMA（TIM9~TIM14不支持DMA）：
+  * 更新：计数器向上溢出/向下溢出，计数器初始化（通过软件或者内部/外部触发）
+  * 触发事件（计数器启动、停止、初始化或者内部/外部触发计数）
+  * 输入捕获
+  * 输出比较
+  * 支持针对定位的增量（正交）编码器和霍尔传感器电路（TIM9~TIM14不支持）
+  * 触发输入作为外部时钟或者按周期的电流管理（TIM9~TIM14不支持）
+
+> 详细参考《STM32F4xx中文参考手册》P392 通用定时器一章
+
+**与通用定时器相关的寄存器**
+
+* 控制寄存器1（TIMx_CR1）
+
+  <img src="精通STM43F4 库函数版笔记.assets/image-20221206215427102.png" alt="image-20221206215427102" style="zoom:67%;" />
+
+  * 本实验只用到第0位`CEN`（计数器使能位），该位必须置1，才能让定时器开始计数
+
+* DMA/中断使能寄存器（TIMx_DIER）
+
+  <img src="精通STM43F4 库函数版笔记.assets/image-20221206215856326.png" alt="image-20221206215856326" style="zoom: 67%;" />
+  * 本章只关心第0位`UIE`（更新中断允许位）
+  * 本章用到的是定时器的更新中断，所以该位要设置为1，来允许由于更新事件所产生的中断
+
+* 预分频寄存器（TIMx_PSC）
+
+  该寄存器用来设置对时钟进行分频，然后提供给计数器，作为计数器的时钟
+
+  <img src="精通STM43F4 库函数版笔记.assets/image-20221206220244530.png" alt="image-20221206220244530" style="zoom:67%;" />
+
+  * 定时器的时钟来源有4个：
+
+    * 内部时钟（CK_INT）
+    * 外部时钟模式1：外部输入脚（TIx）
+    * 外部时钟模式2：外部触发输入（ETR），仅适用于TIM2、TIM3、TIM4
+    * 内部触发输入（ITRx）：使用A定时器作为B定时器的预分频器（A为B提供时钟）
+
+    > 通过寄存器`TIMx_SMCR`来设置选择哪个时钟。
+    >
+    > CK_INT时钟是从APB1倍频出来的，除非APB1的时钟分频数设置为1（一般都不会是1），否则通用定时器TIMx的时钟是APB1时钟的2倍。
+    >
+    > 高级定时器以及TIM9~TIM11的时钟不是来自APB1而是来自APB2的
+
+* 定时器计数器（TIMx_CNT）
+
+  该寄存器存储了当前定时器的计数值
+
+* 自动重装载寄存器（TIMx_ARR）
+
+  <img src="精通STM43F4 库函数版笔记.assets/image-20221206221604104.png" alt="image-20221206221604104" style="zoom:67%;" />
+
+  * 该寄存器物理上实际上对应着2个寄存器：
+
+    * 一个可以直接操作的
+    * 一个是影子寄存器
+
+    真正起作用的是影子寄存器，根据TIMx_CR1寄存器中的APRE位的设置：
+
+    * APRE=0，预装载寄存器的内容可以随时传送到影子寄存器，此时2者是连通的
+    * APRE=1，在每一次更新事件（UEV）时，才把预装载寄存器（ARR）的内容传送到影子寄存器
+
+* 状态寄存器（TIMx_SR）
+
+  该寄存器用来标记与当前定时器相关的各种事件/中断是否发生
+
+  <img src="精通STM43F4 库函数版笔记.assets/image-20221206221718534.png" alt="image-20221206221718534" style="zoom:67%;" />
+
+  > 详细查看《STM32F4xx中文参考手册》P429
+
+**定时器TIM3的配置步骤如下：**
+
+* TIM3时钟使能
+
+  `RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM3,ENABLE); ///使能 TIM3 时钟`
+
+* 初始化定时器参数，设置自动重装载值，分频系数，计数方式等
+
+  ```c
+  void TIM_TimeBaseInit(TIM_TypeDef*TIMx,TIM_TimeBaseInitTypeDef* TIM_TimeBaseInitStruct);
+  ```
+
+  * 第一个参数：确定是哪个定时器
+
+  * 第二个参数：定时器初始化参数结构体指针，结构体类型为`TIM_TimeBaseInitTypeDef`
+
+    ```c
+    typedef struct
+    {
+    	uint16_t TIM_Prescaler; 
+    	uint16_t TIM_CounterMode; 
+    	uint16_t TIM_Period; 
+    	uint16_t TIM_ClockDivision; 
+    	uint8_t TIM_RepetitionCounter; 
+    } TIM_TimeBaseInitTypeDef; 
+    ```
+
+    * `TIM_Prescaler`：用来设置分频系数
+    * `TIM_CounterMode`：用来设置计数方式，可以设置为向上计数，向下计数方式还有中央对齐计数方式，比较常用的是向上计数模式`TIM_CounterMode_Up`和向下计数模式`TIM_CounterMode_Down`
+    * `TIM_Period`：设置自动重装载计数周期值
+    * `TIM_ClockDivision`：设置时钟分频因子
+    * `TIM_RepetitionCounter`：高级定时器才有用到，这里不讲解
+
+* 设置TIM3_DIER允许更新中断：
+
+  因为要使用TIM3的更新中断，所以要设置使能更新中断
+
+  ```c
+  void TIM_ITConfig(TIM_TypeDef* TIMx, uint16_t TIM_IT, FunctionalState NewState)；
+  ```
+
+  * 参数1：选择定时器号，取值为TIM1~TIM7
+  * 参数2：指明使能的定时器中断的类型，定时器的中断类型有很多种，包括更新中断（TIM_IT_Update）、触发中断（TIM_IT_Trigger）以及输入捕获中断等
+  * 参数3：是否使能
+
+* TIM3中断优先级设置
+
+  使用`NVIC_Init`函数来实现中断优先级的设置
+
+* 使能TIM3
+
+  配置完定时器后要开启定时器，通过TIM3_CR1的CEN为来设置
+
+  ```c
+  void TIM_Cmd(TIM_TypeDef* TIMx, FunctionalState NewState);
+  
+  //实例：使能TIM3
+  TIM_Cmd(TIM3, ENABLE); //使能 TIMx 外设
+  ```
+
+* 编写中断函数：
+
+  * 在中断产生后，通过状态寄存器的值来判断此次产生的中断属于什么类型，然后执行相关的操作，这里用到更新（溢出）中断，所以在状态寄存器SR的最低位。
+
+  * 在处理完中断之后应该想TIM3_SR的最低位写0来清除中断标志。
+
+  * 判断定时器3是否发生更新（溢出）中断的方法
+
+    ```c
+    //ITStatus TIM_GetITStatus(TIM_TypeDef* TIMx, uint16_t)
+    if (TIM_GetITStatus(TIM3, TIM_IT_Update) == RESET){}
+    ```
+
+  * 清除中断标志位的函数
+
+    ```c
+    //void TIM_ClearITPendingBit(TIM_TypeDef* TIMx, uint16_t TIM_IT);
+    TIM_ClearITPendingBit(TIM3, TIM_IT_Update);
+    ```
+
+  > 固件库还提供了两个函数来判断定时器状态以及清除定时器状态标志位的函数`TIM_GetFlagSatus`和`TIM_ClearFlag`，他们的作用和前面两个类似，只是会先去判断是否使能了中断标志位。
+
+### 13.2 硬件设计
+
+使用到的硬件资源：
+
+* 指示灯DS0和DS1
+* 定时器TIM3
+
+本章通过TIM3的中断来控制DS1的亮灭，DS1是直接连接到PF10上的。TIM3属于STM32F4的内部资源。
+
+### 13.3 软件设计
+
+* 在HARDWARE下添加：`timer.c`和`timer.h`
+
+* 引入固件库函数文件`stm32f4xx_tim.c`和`stm32f4xx_tim.h`
+
+`timer.c`的代码如下：
+
+```c
+#include "timer.h"
+#include "led.h"
+
+//通用定时器3中断初始化
+//arr: 自动重装值
+//psc: 时钟预分频数
+//定时器溢出时间计算方法：Tout=((arr+1)*(psc+1))/Ft us.
+//Ft=定时器工作频率，单位：Mhz
+//这里使用的是定时器3
+void TIM3_Int_Init(u16 arr,u16 psc)
+{
+	TIM_TimeBaseInitTypeDef TIM_TimeBaseInitStruct;
+	NVIC_InitTypeDef NVIC_InitStruct;
+	
+	RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM3, ENABLE);	//1. 使能TIM3时钟
+	
+	TIM_TimeBaseInitStruct.TIM_Prescaler = psc;	//定时器分频 
+	TIM_TimeBaseInitStruct.TIM_CounterMode = TIM_CounterMode_Up;	//向上计数模式
+	TIM_TimeBaseInitStruct.TIM_Period = arr;	//自动重装载值
+	TIM_TimeBaseInitStruct.TIM_ClockDivision = TIM_CKD_DIV1;
+	TIM_TimeBaseInit(TIM3, &TIM_TimeBaseInitStruct);	//2. 初始化定时器TIM3
+	
+	TIM_ITConfig(TIM3, TIM_IT_Update, ENABLE);	//3. 允许定时器3更新中断
+	
+	NVIC_InitStruct.NVIC_IRQChannel = TIM3_IRQn;	//定时器3中断
+	NVIC_InitStruct.NVIC_IRQChannelPreemptionPriority = 0x01;	//抢占优先级1
+	NVIC_InitStruct.NVIC_IRQChannelSubPriority = 0x03;	//子优先级3
+	NVIC_InitStruct.NVIC_IRQChannelCmd = ENABLE;
+	NVIC_Init(&NVIC_InitStruct);	//4.初始化NVIC
+	
+	TIM_Cmd(TIM3, ENABLE);	//5.使能定时器3
+}
+
+//定时器3中断服务函数
+void TIM3_IRQHandler(void)
+{
+	if(TIM_GetITStatus(TIM3, TIM_IT_Update) == SET)	//溢出中断
+	{
+		LED1 = !LED1;
+	}
+	
+	TIM_ClearITPendingBit(TIM3, TIM_IT_Update);	//清除中断标志位
+}
+```
+
+* 系统初始化`SystemInit`函数里面已经初始化APB1的时钟为4分频，所以APB1的时钟为42M
+
+* 从STM32F4的内部时钟树图（图4.3.1.1）得知：当APB1的时钟频率为1的时候，TIM2~7以及TIM12~14的时钟为APB1的时钟，而如果APB1的时钟分频不为1，那么TIM2~7以及TIM12~14的时钟频率为APB1时钟的两倍。因此，TIM3的时钟为84M。
+
+* 计数中断事件：
+
+  `Tout = ((arr+1)*(psc+1))/Tclk`
+
+  * Tclk：TIM3的输入时钟频率（单位为Mhz）
+  * Tout：TIM3溢出时间（单位为us）
+
+`main.c`代码如下：
+
+```c
+
+int main(void)
+{
+	NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2);	//设置系统中断优先级分组2
+	delay_init(168);	//初始化延时函数
+	LED_Init();	//初始化LED端口
+	TIM3_Int_Init(5000-1, 8400-1);	//定时器时钟84M，分频系数8400，所以84M/8400=10Khz的计数频率，计数5000次为500ms
+
+	while(1)
+	{
+		LED0 = !LED0;
+		delay_ms(200);	//延时200ms
+	}
+}
+```
+
+此段代码对TIM3进行初始化之后，进入死循环等待TIM3溢出中断，当TIM3_CNT的值等于TIM3_ARR的值的时候，就会产生TIM3的更新中断，然后在中断里面取反LED1，TIM3_CNT再从0开始计数。
+
+### 13.4 下载验证
+
+下载到开发板上，将看到DS0不停闪烁（每400ms闪烁一次），而DS1也是不停的闪烁，但是闪烁频率较DS0慢（1s一次）
 
 # 视频学习
 
