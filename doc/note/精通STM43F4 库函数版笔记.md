@@ -2748,3 +2748,409 @@ TIMx_CCER的CC1P为 捕获/比较1输出极性位：
   * 1：OC1低电平有效
 
 假设使用PWM模式1且配置极性配置为1（OC1低电平有效），当TIMx_CNT<TIMx_CCR1时，输出有效电平（此时有效电平为低电平），当TIMx_CNT>TIMx_CCR1时，输出无效电平（此时无效电平为高电平）。
+
+## 第15章 输入捕获实验
+本章介绍通用定时器作为输入捕获的使用：
+用TIM5的通道1（PA0）来做输入捕获，捕获PA0上高电平的脉宽（用KEY_UP按键输入高电平），通过串口打印高电平脉宽时间。
+
+### 15.1 输入捕获简介
+输入捕获模式可以用来：
+* 测量脉冲宽度
+* 测量频率
+
+<img src="assets/image-20221209230307247.png" alt="image-20221209230307247" style="zoom: 50%;" />
+
+假定定时器工作在向上计数模式，图中t1~t2时间是要测量的高电平时间。
+测量方法：
+
+* 设置定时器通道x为上升沿捕获，在t1时刻，捕获到当前定时器（TIMx_CNT）的值存放到对应通道的捕获/比较寄存器（TIMx_CNT）。
+* 立即清零CNT，并设置通道x为下降沿捕获，在t2时刻，捕获到当前的CNT值，记为CCRx2。
+* 根据定时器的计数频率，算出t1~t2的时间，得到高电平脉宽
+
+* 在t1~t2之间，可能产生N次定时器溢出，需对定时器溢出做处理。
+  计算方法： (N*ARR + CCRx2) * 1/计数频率
+
+> STM32F4除了TIM6和IM7定时器，其他定时器都有输入捕获功能。
+>
+> 还可以配置捕获时是否触发中断/DMA等
+
+**使用到的寄存器**
+
+![image-20221210165720849](assets/image-20221210165720849.png)
+
+需要用到的寄存器：
+
+* TIMx_ARR：自动重转载值
+* TIMx_PSC：TIMx的时钟分频
+* TIMx_CCMR1：捕获/比较模式寄存器1
+* TIMx_CCER：捕获/比较使能寄存器
+* TIMx_DIER
+* TIMx_CR1
+* TIMx_CCR1
+
+这里详细介绍几个：
+
+**捕获/比较模式寄存器1：`TIMx_CCMR1` **
+
+![image-20221210092456711](assets/image-20221210092456711.png)
+
+* 在输入捕获模式下，使用的时第二行的描述
+
+* 低8位控制通道1，高8位控制通道2
+
+* 重点介绍TIM5捕获/比较通道1用到的低8位：
+
+  <img src="assets/image-20221210092821773.png" alt="image-20221210092821773" style="zoom:67%;" />
+  * CC1S[1:0]：这两位用于CCR1的通道配置，这里设置为01，把IC1映射到TI1上，即CC1对应`TMx_CH1`
+
+    > 关于IC1，详细介绍在《STM32F4xx中文参考手册》P393 图119-通用定时器框图
+
+  * 输入捕获1预分频器IC1PSC[1:0]，设置为00，1次边沿就触发1次捕获
+
+  * 输入捕获1滤波器IC1F[3:0]，用来设置输入采样频率和数字滤波器长度
+
+    * f(CK_INT) ： 定时器的输入频率（TIMxCLK），一般为84Mhz/168Mhz（看该定时器在哪个总线上）
+
+    * f(DTS)：根据TIMx_CR1的CKD[1:0]的设置来确定，如果CKD[1:0]设置为00，那么f(DTS) =f(CK_INT)，N值就是滤波长度。
+
+      > 假设ICIF[3:0]=0011，并设置IC1映射到通道1上，且为上升沿触发，在捕获到上升沿时，再以f(CK_INT)的频率，连续采样8次通道1的电平，如果都是高电平，则说明是一个有效的触发，就会触发输入捕获中断（如果有开启）。这样就可以滤除高电平脉宽低于8个采样周期的脉冲信号，从而达到滤波的效果。
+      >
+      > 我们这里不做滤波处理，所以设置IC1F[3:0]=0000，只有采集到上升沿就触发捕获。
+
+**捕获比较使能寄存器：`TIMx_CCER`**
+
+各位描述图在第14章，本章只用到寄存器的最低2位，CC1E和CC1P位。
+
+![image-20221210101212795](assets/image-20221210101212795.png)
+
+* 要使能输入捕获，必须设置CC1E=1
+* CC1P选择上升沿还是下降沿来触发
+
+**DMA/中断使能寄存器：`TIMx_DIER`**
+
+各位描述见第13章，本章需要用到中断来捕获数据，所以必须开启通道1的捕获比较中断，即CC1IE设置位1。
+
+**控制寄存器：`TIMx_CR1`**
+
+只用到了最低位，用来使能定时器。
+
+**捕获/比较寄存器1：`TIMx_CCR1`**
+
+用来存储捕获发生时，`TIMx_CNT`的值。
+
+**介绍库函数配置输入捕获的步骤：**
+
+**1. 开启TIM5时钟，配置PA0为复用功能（AF2），并开启下拉电阻**
+
+* 开启TIM5时钟：
+
+  `RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM5,ENABLE); //TIM5 时钟使能`
+
+* 配置PA0引脚映射为AF2：
+
+  ````c
+  GPIO_PinAFConfig(GPIOA,GPIO_PinSource0,GPIO_AF_TIM5); //GPIOF9 复用位定时器 14
+  ````
+
+* 初始化GPIO的模式为复用功能，同时要捕获`TIM5_CH1`上的高电平脉宽，要配置PA0为带下拉的复用功能。
+
+  ```c
+  法为：
+  GPIO_InitStructure.GPIO_Pin = GPIO_Pin_0; //GPIOA0
+  GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF;//复用功能
+  GPIO_InitStructure.GPIO_Speed = GPIO_Speed_100MHz; //速度 100MHz
+  GPIO_InitStructure.GPIO_OType = GPIO_OType_PP; //推挽复用输出
+  GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_DOWN; //下拉
+  GPIO_Init(GPIOA,&GPIO_InitStructure); //初始化 PA0
+  ```
+
+**2. 初始化TIM5，设置TIM5的ARR和PSC**
+
+设置输入捕获的自动重装载值和计数频率
+
+```c
+TIM_TimeBaseStructure.TIM_Prescaler=psc; //定时器分频
+TIM_TimeBaseStructure.TIM_CounterMode=TIM_CounterMode_Up; //向上计数模式
+TIM_TimeBaseStructure.TIM_Period=arr; //自动重装载值
+TIM_TimeBaseStructure.TIM_ClockDivision=TIM_CKD_DIV1; 
+TIM_TimeBaseInit(TIM5,&TIM_TimeBaseStructure);//初始化 TIM5
+```
+
+**3. 设置TIM5的输入捕获参数，开启输入捕获**
+
+设置通道1为输入模式，且IC1映射到TI1（通道1）上面，并且不使用滤波（提高响应速度）器。
+
+```c
+void TIM_ICInit(TIM_TypeDef* TIMx, TIM_ICInitTypeDef* TIM_ICInitStruct);
+
+
+typedef struct
+{
+ uint16_t TIM_Channel; //通道
+ uint16_t TIM_ICPolarity; //捕获极性
+ uint16_t TIM_ICSelection;//映射
+ uint16_t TIM_ICPrescaler;//分频系数
+ uint16_t TIM_ICFilter; //滤波器长度
+} TIM_ICInitTypeDef
+```
+
+库函数还提供了单独设置通道1捕获极性的函数
+
+```c
+TIM_OC1PolarityConfig(TIM5,TIM_ICPolarity_Falling);
+```
+
+配置代码：
+
+```c
+TIM5_ICInitStructure.TIM_Channel = TIM_Channel_1; //选择输入端 IC1 映射到 TI1 上
+TIM5_ICInitStructure.TIM_ICPolarity = TIM_ICPolarity_Rising; //上升沿捕获
+TIM5_ICInitStructure.TIM_ICSelection = TIM_ICSelection_DirectTI; //映射到 TI1 上
+TIM5_ICInitStructure.TIM_ICPrescaler = TIM_ICPSC_DIV1; //配置输入分频,不分频
+TIM5_ICInitStructure.TIM_ICFilter = 0x00;//IC1F=0000 配置输入滤波器 不滤波
+TIM_ICInit(TIM5, &TIM5_ICInitStructure);
+```
+
+**4. 使能捕获和更新中断（设置TIM5的DIER寄存器）**
+
+* 在捕获到上升沿后，需要设置捕获边沿为下降沿
+* 如果脉宽较长，那么定时器就会溢出，需对此做处理，不过，STM32F4的TIM5是32位定时器，假设计数周期位1us，那么需要4294秒才溢出一次，这基本上是不可能的。
+
+这两件事都在中断里面做，所以要先开启捕获中断和更新中断
+
+```c
+TIM_ITConfig( TIM5,TIM_IT_Update|TIM_IT_CC1,ENABLE);//允许更新中断和捕获中断
+```
+
+**5. 设置中断优先级，编写中断函数**
+
+* 初始化中断优先级分组和设置中断优先级
+
+	```c
+NVIC_PriorityGroupConfig();
+NVIC_Init();
+	```
+
+* 在中断里面进行中断类型判断，在中断结束的时候要清除中断标志位，使用到的有如下函数：
+
+  ```c
+  if (TIM_GetITStatus(TIM5, TIM_IT_Update) != RESET){}//判断是否为更新中断
+  if (TIM_GetITStatus(TIM5, TIM_IT_CC1) != RESET){}//判断是否发生捕获事件
+  TIM_ClearITPendingBit(TIM5, TIM_IT_CC1|TIM_IT_Update);//清除中断和捕获标志位
+  ```
+
+* 在中断服务函数中，还用到一个设置计算器值的函数：
+
+  ```c
+  TIM_SetCounter(TIM5,0);
+  ```
+
+**6. 使能定时器（设置TIM5的CR1寄存器）**
+
+打开定时器的计数器开关，启用TIM5的计数器，开始输入捕获：
+
+```c
+TIM_Cmd(TIM5,ENABLE ); //使能定时器 5
+```
+
+实验还用到了串口输出结果，所以还需要配置一下串口。
+
+### 15.2 硬件设计
+
+用到的硬件资源：
+
+* 指示灯DS0
+* `KEY_UP`按键
+* 串口
+* 定时器TIM3
+* 定时器TIM5
+
+本节，我们将捕获 TIM5_CH1（PA0）上的高电平脉 宽，通过 KEY_UP 按键输入高电平，并从串口打印高电平脉宽。同时我们保留上节的 PWM 输 出，大家也可以通过用杜邦线连接 PF9 和 PA0，来测量 PWM 输出的高电平脉宽
+
+### 15.3 软件设计
+
+添加驱动文件`timer.c`和`timer.h`
+
+`timer.c`
+
+```c
+//TIM14 PWM部分初始化 
+//PWM输出初始化
+//arr：自动重装值
+//psc：时钟预分频数
+void TIM14_PWM_Init(u32 arr,u32 psc)
+{		 					 
+	//此部分需手动修改IO口设置
+	
+	GPIO_InitTypeDef GPIO_InitStructure;
+	TIM_TimeBaseInitTypeDef  TIM_TimeBaseStructure;
+	TIM_OCInitTypeDef  TIM_OCInitStructure;
+	
+	RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM14,ENABLE);  	//TIM14时钟使能    
+	RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOF, ENABLE); 	//使能PORTF时钟	
+	
+	GPIO_PinAFConfig(GPIOF,GPIO_PinSource9,GPIO_AF_TIM14); //GPIOF9复用位定时器14
+	
+	GPIO_InitStructure.GPIO_Pin = GPIO_Pin_9; //GPIOA9 
+	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF;//复用功能
+	GPIO_InitStructure.GPIO_Speed = GPIO_Speed_100MHz;	//速度100MHz
+	GPIO_InitStructure.GPIO_OType = GPIO_OType_PP; //推挽复用输出
+	GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_UP; //上拉
+	GPIO_Init(GPIOF,&GPIO_InitStructure); //初始化PF9
+	
+	TIM_TimeBaseStructure.TIM_Prescaler=psc;  //定时器分频
+	TIM_TimeBaseStructure.TIM_CounterMode=TIM_CounterMode_Up; //向上计数模式
+	TIM_TimeBaseStructure.TIM_Period=arr;   //自动重装载值
+	TIM_TimeBaseStructure.TIM_ClockDivision=TIM_CKD_DIV1; 
+	
+	TIM_TimeBaseInit(TIM14,&TIM_TimeBaseStructure);
+	
+	//初始化TIM14 Channel1 PWM模式	 
+	TIM_OCInitStructure.TIM_OCMode = TIM_OCMode_PWM1; //选择定时器模式:TIM脉冲宽度调制模式2
+ 	TIM_OCInitStructure.TIM_OutputState = TIM_OutputState_Enable; //比较输出使能
+	TIM_OCInitStructure.TIM_OCPolarity = TIM_OCPolarity_Low; //输出极性:TIM输出比较极性高
+	TIM_OCInitStructure.TIM_Pulse=0;
+	TIM_OC1Init(TIM14, &TIM_OCInitStructure);  //根据T指定的参数初始化外设TIM3 OC2
+
+	TIM_OC2PreloadConfig(TIM14, TIM_OCPreload_Enable);  //使能TIM3在CCR2上的预装载寄存器
+ 
+  TIM_ARRPreloadConfig(TIM14,ENABLE);
+	
+	TIM_Cmd(TIM14, ENABLE);  //使能TIM14		
+
+}  
+
+//定时器5通道1输入捕获配置
+//arr：自动重装值（TIM2,TIM5是32位的）
+//psc：时钟预分频数
+void TIM5_CH1_Cap_Init(u32 arr,u16 psc)
+{
+	GPIO_InitTypeDef GPIO_InitStruct;
+	TIM_TimeBaseInitTypeDef TIM_TimeBaseInitStruct;
+	TIM_ICInitTypeDef TIM_ICInitStruct;
+	NVIC_InitTypeDef NVIC_InitStruct;
+	
+	RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOA, ENABLE);	//使能GPIOA时钟
+	RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM5, ENABLE);	//TIM5时钟使能
+	
+	GPIO_InitStruct.GPIO_Pin = GPIO_Pin_0;	//GPIOA0
+	GPIO_InitStruct.GPIO_Mode = GPIO_Mode_AF;	//复用功能
+	GPIO_InitStruct.GPIO_Speed = GPIO_Speed_100MHz;	//速度100MHz
+	GPIO_InitStruct.GPIO_OType = GPIO_OType_PP;	//推挽复用输出
+	GPIO_InitStruct.GPIO_PuPd = GPIO_PuPd_DOWN;	//下拉
+	GPIO_Init(GPIOA, &GPIO_InitStruct);	//初始化PA0
+	
+	GPIO_PinAFConfig(GPIOA, GPIO_PinSource0, GPIO_AF_TIM5);	//PA0复用定时器5
+	
+	TIM_TimeBaseInitStruct.TIM_Prescaler = psc;	//定时器分频
+	TIM_TimeBaseInitStruct.TIM_CounterMode = TIM_CounterMode_Up;	//向上计数
+	TIM_TimeBaseInitStruct.TIM_Period = arr;	//自动重装载值
+	TIM_TimeBaseInitStruct.TIM_ClockDivision = TIM_CKD_DIV1;
+	//TIM_TimeBaseInitStruct.TIM_RepetitionCounter
+	TIM_TimeBaseInit(TIM5, &TIM_TimeBaseInitStruct);
+	
+	//初始化TIM5输入捕获参数
+	TIM_ICInitStruct.TIM_Channel = TIM_Channel_1;	//CC1S=01 选择输入端IC1映射到TI1上
+	TIM_ICInitStruct.TIM_ICPolarity = TIM_ICPolarity_Rising;	//上升沿捕获
+	TIM_ICInitStruct.TIM_ICSelection = TIM_ICSelection_DirectTI;	//映射到TI1上
+	TIM_ICInitStruct.TIM_ICPrescaler = TIM_ICPSC_DIV1;	//配置输入分频，不分频
+	TIM_ICInitStruct.TIM_ICFilter = 0x00;	//IC1F=000 配置输入滤波器不滤波
+	TIM_ICInit(TIM5, &TIM_ICInitStruct);
+	
+	TIM_ITConfig(TIM5, TIM_IT_Update|TIM_IT_CC1, ENABLE);	//允许更新中断，允许CC1IE捕获中断
+	
+	TIM_Cmd(TIM5, ENABLE);	//使能定时器5
+	
+	NVIC_InitStruct.NVIC_IRQChannel = TIM5_IRQn;
+	NVIC_InitStruct.NVIC_IRQChannelPreemptionPriority = 2;	//抢占优先级
+	NVIC_InitStruct.NVIC_IRQChannelSubPriority = 0;	//子优先级
+	NVIC_InitStruct.NVIC_IRQChannelCmd = ENABLE;
+	//IRQ通道使能
+	NVIC_Init(&NVIC_InitStruct);	//根据指定的参数初始化VIC寄存器
+}
+
+
+//捕获状态
+//[7]:0，没有成功的捕获；1，成功的捕获到一次
+//[6]:0，还没捕获的低电平；1，已经捕获到低电平了
+//[5:0]：捕获低电平后溢出的次数（对于32位定时器来说，1us计数器加1，溢出时间4294秒）
+u8 TIM5CH1_CAPTURE_STA = 0;	//输入状态捕获
+u32 TIM5CH1_CAPTURE_VAL;	//输入捕获值（TIM2/TIM5是32位）
+
+
+//定时器5中断服务程序
+void TIM5_IRQHandler()
+{
+	if((TIM5CH1_CAPTURE_STA&0x80) == 0)	//还未捕获成功
+	{
+		if(TIM_GetITStatus(TIM5, TIM_IT_Update) != RESET)	//溢出
+		{
+			if(TIM5CH1_CAPTURE_STA&0x40)	//已经捕获到高电平
+			{
+				if((TIM5CH1_CAPTURE_STA&0x3f) == 0x3f)	//高电平太长了
+				{
+					TIM5CH1_CAPTURE_STA |= 0x80;	//标记成功捕获了一次
+					TIM5CH1_CAPTURE_VAL = 0xFFFFFFFF;
+				}else TIM5CH1_CAPTURE_STA++;
+			}
+		}
+		if(TIM_GetITStatus(TIM5, TIM_IT_CC1) != RESET)	//捕获1发生捕获事件
+		{
+			if(TIM5CH1_CAPTURE_STA&0x40)	//捕获到一个下降沿
+			{
+				TIM5CH1_CAPTURE_STA |= 0x80;	//标记成功捕获到一次高电平脉宽
+				TIM5CH1_CAPTURE_VAL = TIM_GetCapture1(TIM5);	//获取当前的捕获值
+				TIM_OC1PreloadConfig(TIM5, TIM_ICPolarity_Rising);	//CC1P=0 设置为上升沿捕获
+				
+			} 
+			else	//还未开始，第一次捕获上升沿 
+			{
+				TIM5CH1_CAPTURE_STA = 0;	//清空
+				TIM5CH1_CAPTURE_VAL = 0;
+				TIM5CH1_CAPTURE_STA |= 0x40;	//标记捕获到了上升沿
+				TIM_Cmd(TIM5, DISABLE);	//关闭定时器5
+				TIM_SetCounter(TIM5, 0);
+				TIM_OC1PreloadConfig(TIM5, TIM_ICPolarity_Falling);	//CC1P=1 设置为下降沿捕获
+				TIM_Cmd(TIM5, ENABLE);	//使能定时器5
+			}
+		}
+	}
+	TIM_ClearITPendingBit(TIM5, TIM_IT_Update|TIM_IT_CC1);
+}
+```
+
+`main.c`
+
+```c
+extern u8 TIM5CH1_CAPTURE_STA;	//输入状态捕获
+extern u32 TIM5CH1_CAPTURE_VAL;	//输入捕获值（TIM2/TIM5是32位）
+
+int main(void)
+{
+	long long temp = 0;
+	NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2);	//设置系统中断优先级分组2
+	delay_init(168);	//初始化延时函数
+	uart_init(115200);	//初始化延时函数
+	TIM14_PWM_Init(500-1, 84-1); //84M/84=1Mhz的计数频率，重装载值500，所以PWM频率为1M/500=2Hhz
+	TIM5_CH1_Cap_Init(0xFFFFFFFF, 84-1);	//以1Mhz的频率计数
+	
+	while(1)
+	{
+		delay_ms(10);
+		TIM_SetCompare1(TIM14, TIM_GetCapture1(TIM14)+1);
+		if(TIM_GetCapture1(TIM14)==300) TIM_SetCompare1(TIM14, 0);
+		
+		if(TIM5CH1_CAPTURE_STA & 0x80)	//成功捕获到了一次高电平
+		{
+			temp = TIM5CH1_CAPTURE_STA & 0x3f;
+			temp *= 0xFFFFFFFF;	//溢出时间总和
+			temp += TIM5CH1_CAPTURE_VAL;	//得到总的高电平时间
+			printf("HIGH:%lld us\r\n", temp);	//打印总的高电平时间
+			TIM5CH1_CAPTURE_STA = 0;	//开启下一次捕获
+		}
+		//printf("running...\r\n");
+	}
+}
+
+```
+
