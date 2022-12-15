@@ -3502,6 +3502,7 @@ ILI9341命令很多，这边只介绍6条指令：
 * 0XD3：读 ID4 指令，用于读取LCD控制器的ID
 
   <img src="精通STM43F4 库函数版笔记.assets/image-20221213214649484.png" alt="image-20221213214649484" style="zoom:50%;" />
+
   * 最后两个参数是LCD驱动器的型号，对应ILI9341的数字部分，通过该指令就可以判断LCD驱动器型号，代码中可以根据控制器的型号去执行对应驱动 IC 的初始化代码，从而兼容不同驱动IC的屏，使得一个代码支持多款LCD。
 
 * 0X36：存储访问控制指令，可以控制ILI9341存储器的读写方向，就是在连续写/读GRAM的时候，可以控制GRAM指针的增长方向，从而控制显示方式。
@@ -3536,6 +3537,7 @@ ILI9341命令很多，这边只介绍6条指令：
   <img src="精通STM43F4 库函数版笔记.assets/image-20221213220647067.png" alt="image-20221213220647067" style="zoom:50%;" />
 
   <img src="精通STM43F4 库函数版笔记.assets/image-20221213220701687.png" alt="image-20221213220701687" style="zoom:50%;" />
+
   * 从上表可知，在收到指令 0X2C 之后，数据有效位宽变为 16 位，我们可以连续写入 LCD  GRAM 值，而 GRAM 的地址将根据 MY/MX/MV 设置的扫描方向进行自增。例如：假设设置 的是从左到右，从上到下的扫描方式，那么设置好起始坐标（通过 SC，SP 设置）后，每写入 一个颜色值，GRAM 地址将会自动自增 1（SC++），如果碰到 EC，则回到 SC，同时 SP++，一 直到坐标：EC，EP 结束，其间无需再次设置的坐标，从而大大提高写入速度。
 
 * 0X2E：读GRAM指令，用于读取ILI9341的显存（GRAM）， 该指令在ILI9341的数据手册上面的描述是有误的，真实的输出情况如表 18.1.1.7 所示：
@@ -3651,7 +3653,7 @@ FSMC 综合了 SRAM／ROM、PSRAM 和 NOR  Flash 产品的信号特点，定义�
 
 <img src="精通STM43F4 库函数版笔记.assets/image-20221213232343114.png" alt="image-20221213232343114" style="zoom:50%;" />
 
-* 在实际扩展时，根据选用存储器的特征确定时序模型，从而确定各时间参数与存储器读／ 写周期参数指标之间的计算关系；
+* 在实际扩展时，根据选用存储器的特征确定时序模型，从而确定各时间参数与存储器读写周期参数指标之间的计算关系；
 * 利用该计算关系和存储芯片数据手册中给定的参数指标，可计算出 FSMC 所需要的各时间参数，从而对时间参数寄存器进行合理的配置。 
 
 * 我们使用异步模式 A（ModeA）方式来控制 TFTLCD。
@@ -3671,4 +3673,222 @@ FSMC 综合了 SRAM／ROM、PSRAM 和 NOR  Flash 产品的信号特点，定义�
 图 18.1.2.3 和图 18.1.2.4 中的 ADDSET 与 DATAST，是通过不同的寄存器设置的。
 
 **Bank1的几个控制寄存器**
+
+<font color=blue>SRAM/NOR闪存片选控制寄存器：`FSMC_BCRx(x=1~4)` </font>
+
+![image-20221215193846538](精通STM43F4 库函数版笔记.assets/image-20221215193846538.png)
+
+本章用到的位：
+
+* `EXTMOD`：扩展模式使能位，也就是是否允许读写不同的时序。（本章需要读写不同的时序，故该位置1）
+
+* `WREN`：写使能位。（我们需要向TFTLCD写数据，故该位置1）
+
+* `WMID[1:0]`：存储器数据总线宽度。
+
+  * 00：表示8位数据模式
+  * 01：表示16位数据模式
+  * 10和11保留
+
+  本章使用16位数据线，所以值设置为01
+
+* `MTYP[1:0]`：存储器类型。
+
+  * 00：表示SRAM、ROM
+  * 01：表示PSRAM
+  * 10：表示NOR FLASH
+  * 11：保留
+
+  本章把TFTLCD当成SRAM用，所以值设置为00
+
+* MBKEN：存储块使能位。（本章需要用到存储块控制TFTLCD，故设置为使能）
+
+<font color=blue>SRAM/NOR闪存片选时序寄存器：`FSMC_BTRx(x=1~4)`</font>
+
+![image-20221215194857272](精通STM43F4 库函数版笔记.assets/image-20221215194857272.png)
+
+这个寄存器包含了每个存储器块的控制信息，可以用于SRAM、ROM和NOR闪存存储器。
+
+如果FSMC_BCRx寄存器中设置了EXTMOD位，则有两个时序寄存器分别对应<font color=red>读操作(FSMC_BTRx 本寄存器) 和写操作(FSMC_BWTRx 寄存器)</font>。
+
+本章需要用到的位：
+
+* `ACCMOD[1:0]`：访问模式。
+
+  * 00：访问模式A
+  * 01：访问模式B
+  * 10：访问模式C
+  * 11：访问模式D
+
+  本章用到`访问模式A`，故设置为00
+
+* `DATAST[7:0]`：数据保存时间。
+
+  * 0为保留设置，其他设置则代表保持时间为：DATAST个HCLK时钟周期，最大为255个HCLK周期。
+
+  * 对ILI9341来说，相当于RD低电平继续时间，一般为355ns，而一个HCLK时钟周期为6ns左右（1/168Mhz），为了兼容其他屏，这里设置DATAST为60个HCLK时钟周期，时间大约为360ns。
+
+* `ADDSET[3:0]`：地址建立时间。
+
+  * 建立时间为ADDSET个HCLK周期，最大为15个HCLK周期。
+  * 对于ILI9341来说，相当于RD高电平持续时间，为90ns，所以我们设置ADDSET为15
+
+<font color=blue>SRAM/NOR闪写时序寄存器：FSMC_BWTRx(x=1~4)</font>
+
+![image-20221215200407770](精通STM43F4 库函数版笔记.assets/image-20221215200407770.png)
+
+该寄存器在本章用作写操作时序控制寄存器，需要用到的设置同样是：ACCMOD、DATAST和 ADDSET这三个设置。这三个设置的方法同FSMC_BTRx一样，只是这里对应的是写操作的时序。
+
+对于ILI9341来说，数据保持时间和地址建立时间只需要15ns就够了，所以设置DATASET和ADDSET都为3，时间约为18ns.
+
+
+
+在MDK的寄存器定义里面并没有单独的定义`FSMC_BCRx`、`FSMC_BTRx`、`FSMC_BWTRx `等寄存器，而是将他们进行 了一些组合。
+
+* `FSMC_BCRx`和`FSMC_BTRx`，组合成`BTCR[8]`寄存器组，他们的对应关系如下：
+  * BTCR[0]对应 FSMC_BCR1，BTCR[1]对应 FSMC_BTR1
+  * BTCR[2]对应 FSMC_BCR2，BTCR[3]对应 FSMC_BTR2
+  * BTCR[4]对应 FSMC_BCR3，BTCR[5]对应 FSMC_BTR3
+  * BTCR[6]对应 FSMC_BCR4，BTCR[7]对应 FSMC_BTR4
+
+* FSMC_BWTRx则组合成BWTR[7]，他们的对应关系如下：
+  * BWTR[0]对应FSMC_BWTR1，BWTR[2]对应FSMC_BWTR2
+  * BWTR[4]对应FSMC_BWTR3，BWTR[6]对应FSMC_BWTR4
+  * BWTR[1]、BWTR[3]和BWTR[5]保留没有用到。
+
+**FSMC相关的库函数配置**
+
+**<font color=blue>1) FSMC初始化函数</font>**
+
+初始化FSMC主要是初始化三个寄存器：`FSMC_BCRx`、`FSMC_BTRx`、`FSMC_BWTRx`
+
+固件库提供了3个FSMC初始化函数：
+
+```c
+FSMC_NORSRAMInit();
+FSMC_NANDInit();
+FSMC_PCCARDInit();
+```
+
+这3个函数分别用来初始化4中类型存储器，根据名字就很好判断对应关系。
+
+我们这里用到SRAM，所以使用`FSMC_NORSRAMInit()`函数。
+
+函数定义：
+
+```c
+void FSMC_NORSRAMInit(FSMC_NORSRAMInitTypeDef* FSMC_NORSRAMInitStruct)
+```
+
+入口参数的结构体类型：
+
+```c
+typedef struct
+{
+ uint32_t FSMC_Bank; 
+ uint32_t FSMC_DataAddressMux; 
+ uint32_t FSMC_MemoryType; 
+ uint32_t FSMC_MemoryDataWidth;
+ uint32_t FSMC_BurstAccessMode; 
+ uint32_t FSMC_AsynchronousWait; 
+ uint32_t FSMC_WaitSignalPolarity; 
+ uint32_t FSMC_WrapMode; 
+ uint32_t FSMC_WaitSignalActive; 
+ uint32_t FSMC_WriteOperation; 
+ uint32_t FSMC_WaitSignal; 
+ uint32_t FSMC_ExtendedMode; 
+ uint32_t FSMC_WriteBurst; 
+ FSMC_NORSRAMTimingInitTypeDef* FSMC_ReadWriteTimingStruct; 
+ FSMC_NORSRAMTimingInitTypeDef* FSMC_WriteTimingStruct; 
+}FSMC_NORSRAMInitTypeDef;
+```
+
+* 前面13个基本类型（`unit32_t`）主要用来配置片选控制寄存器`FSMC_BCRx`
+* 后面两个参数用来配置寄存器`FSMC_BTRx`和`FSMC_BWTRx`
+
+我们这边主要看看模式A下的相关配置参数：
+
+* `FSMC_Bank`：用来设置使用到的存储块标号和区号
+
+  我们使用的是存储块1区号4，设置值为`FSMC_Bank1_NORSRAM4`
+
+* `FSMC_MemoryType`：设置数据宽度，可选8位还是16位。
+
+  我们使用16位数据宽度，设置值为`FSMC_MemoryDataWidth_16b`
+
+* `FSMC_WriteOperation`：设置写使能。
+
+  我们需要向TFTLCD写数据，设置值为`FSMC_WriteOperation_Enable`
+
+* `FSMC_ExtendedMode`：设置扩展模式使能位，也就是是否允许读写使用不同的时序。
+
+  我们采取读写不同时序，设置值为`FSMC_ExtendedMode_Enable`
+
+其他几个参数的意义：
+
+* `FSMC_DataAddressMux`：设置地址/数据复用使能。若为使能，那么地址的低16位和数据将共用数据总线，仅对NOR和PSRAM有效。
+
+  我们这里设置为默认值不复用`FSMC_DataAddressMux_Disable`
+
+* `FSMC_BurstAccessMode`、`FSMC_BurstAccessMode`、`FSMC_AsynchronousWait` 、 `FSMC_WaitSignalPolarity` 、 `FSMC_WaitSignalActive` 、 `FSMC_WrapMode` 、 `FSMC_WaitSignal`、 `FSMC_WriteBurst` 这些参数在成组模式同步模式才需要设置，大家可以参考中文参考手册了解相关参数的意思。
+
+设置读写时序参数的两个变量：`FSMC_ReadWriteTimingStruct`和`FSMC_WriteTimingStruct`。
+
+结构体类型
+
+```c
+typedef struct
+{
+ uint32_t FSMC_AddressSetupTime; 
+ uint32_t FSMC_AddressHoldTime; 
+ uint32_t FSMC_DataSetupTime; 
+ uint32_t FSMC_BusTurnAroundDuration; 
+ uint32_t FSMC_CLKDivision; 
+ uint32_t FSMC_DataLatency; 
+ uint32_t FSMC_AccessMode; 
+}FSMC_NORSRAMTimingInitTypeDef;
+```
+
+这些参数的意思在前面已经讲过，主要是用来设置地址建立保持时间，数据建立时间等等配置。
+
+**<font color=blue>2) FSMC使能函数</font>**
+
+FSMC对不同的存储器类型提供了不同的使能函数：
+
+```c
+void FSMC_NORSRAMCmd(uint32_t FSMC_Bank, FunctionalState NewState);
+void FSMC_NANDCmd(uint32_t FSMC_Bank, FunctionalState NewState);
+void FSMC_PCCARDCmd(FunctionalState NewState);
+```
+
+### 18.2 硬件设计
+
+用到的硬件资源：
+
+* 指示灯DS0
+* TFTLCD模块
+
+<img src="精通STM43F4 库函数版笔记.assets/image-20221215222016764.png" alt="image-20221215222016764" style="zoom:50%;" />
+
+圈出来的部分就是连接 TFTLCD 模块的接口，液晶模块直接插上去即可。
+
+TFTLCD模块与探索者STM32F4开发板的IO口对应关系如下：
+
+* `LCD_BL`(背光控制)对应PB0
+* `LCD_CS`对应PG12即FSMC_NE4
+* `LCD_RS`对应 PF12 即 FSMC_A6
+* `LCD_WR`对应 PD5 即 FSMC_NWE
+* `LCD_RD`对应 PD4 即 FSMC_NOE
+* `LCD_D[15:0]`则直接连接在`FSMC_D15~FSMC_D0`
+
+### 18.3 软件设计
+
+TFT LCD显示工程：
+
+* 添加两个文件`lcd.c`和`lcd.h`
+* FSMC相关的库函数分布在`stm32f4xx_fsmc.c`和`stm32f4xx_fsmc.h`中
+
+
+
+
 
