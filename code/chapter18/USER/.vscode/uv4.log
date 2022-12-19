@@ -1,0 +1,11 @@
+Build target 'Template'
+compiling lcd.c...
+..\HARDWARE\LCD\lcd.c(1): warning:  #1-D: last line of file ends without a newline
+  #include "lcd.h"
+..\HARDWARE\LCD\lcd.h(17): warning:  #1-D: last line of file ends without a newline
+  #endif
+..\HARDWARE\LCD\lcd.c: 2 warnings, 0 errors
+linking...
+Program Size: Code=9672 RO-data=424 RW-data=52 ZI-data=1836  
+FromELF: creating hex file...
+"..\OBJ\Template.axf" - 0 Error(s), 2 Warning(s).
