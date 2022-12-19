@@ -3676,7 +3676,7 @@ FSMC 综合了 SRAM／ROM、PSRAM 和 NOR  Flash 产品的信号特点，定义�
 
 <font color=blue>SRAM/NOR闪存片选控制寄存器：`FSMC_BCRx(x=1~4)` </font>
 
-![image-20221215193846538](精通STM43F4 库函数版笔记.assets/image-20221215193846538.png)
+![image-20221219221520271](精通STM43F4 库函数版笔记.assets/image-20221219221520271.png)
 
 本章用到的位：
 
@@ -3705,7 +3705,7 @@ FSMC 综合了 SRAM／ROM、PSRAM 和 NOR  Flash 产品的信号特点，定义�
 
 <font color=blue>SRAM/NOR闪存片选时序寄存器：`FSMC_BTRx(x=1~4)`</font>
 
-![image-20221215194857272](精通STM43F4 库函数版笔记.assets/image-20221215194857272.png)
+![image-20221219221535714](精通STM43F4 库函数版笔记.assets/image-20221219221535714.png)
 
 这个寄存器包含了每个存储器块的控制信息，可以用于SRAM、ROM和NOR闪存存储器。
 
@@ -3735,7 +3735,7 @@ FSMC 综合了 SRAM／ROM、PSRAM 和 NOR  Flash 产品的信号特点，定义�
 
 <font color=blue>SRAM/NOR闪写时序寄存器：FSMC_BWTRx(x=1~4)</font>
 
-![image-20221215200407770](精通STM43F4 库函数版笔记.assets/image-20221215200407770.png)
+![image-20221219221552368](精通STM43F4 库函数版笔记.assets/image-20221219221552368.png)
 
 该寄存器在本章用作写操作时序控制寄存器，需要用到的设置同样是：ACCMOD、DATAST和 ADDSET这三个设置。这三个设置的方法同FSMC_BTRx一样，只是这里对应的是写操作的时序。
 
