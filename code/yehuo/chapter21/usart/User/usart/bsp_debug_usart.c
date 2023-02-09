@@ -1,6 +1,27 @@
 #include "bsp_debug_usart.h"
 
+#if 1
+#pragma import(__use_no_semihosting)             
+//标准库需要的支持函数                 
+struct __FILE 
+{ 
+	int handle; 
+}; 
 
+FILE __stdout;       
+//定义_sys_exit()以避免使用半主机模式    
+_sys_exit(int x) 
+{ 
+	x = x; 
+} 
+//重定义fputc函数 
+int fputc(int ch, FILE *f)
+{ 	
+	while((USART1->SR&0X40)==0);//循环发送,直到发送完毕   
+	USART1->DR = (u8) ch;      
+	return ch;
+}
+#endif
 /**
  * @brief 配置嵌套向量中断控制器NVIC
  * @param 无
@@ -62,7 +83,8 @@ void uart_init(u32 bound){
 	
 	//USART_ClearFlag(USART1, USART_FLAG_TC);
 	
-#if EN_USART1_RX	
+//#if EN_USART1_RX	
+#if 0
 	USART_ITConfig(USART1, USART_IT_RXNE, ENABLE);//开启相关中断
 
 	//Usart1 NVIC 配置
@@ -75,7 +97,6 @@ void uart_init(u32 bound){
 #endif
 	
 }
-
 
 
 /**
@@ -166,10 +187,11 @@ void Usart_SendString(USART_TypeDef *pUSARTx, char *str)
     while(USART_GetFlagStatus(pUSARTx, USART_FLAG_TC) == RESET);
 }
 
-
+#if 0
 int fputc(int ch, FILE *f)
 { 	
 	while((USART1->SR&0X40)==0);
 	USART1->DR = (u8) ch;      
 	return ch;
 }
+#endif

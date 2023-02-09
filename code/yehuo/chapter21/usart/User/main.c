@@ -70,7 +70,8 @@ int main(void)
 			// }
 
 			// delay_ms(10);   
-        printf("\r\n请输入数据\r\n");
+        // printf("\r\n请输入数据\r\n");
+        printf("bbbbbb\r\n");
         Delay(0xFFFFFF);
     }
 
