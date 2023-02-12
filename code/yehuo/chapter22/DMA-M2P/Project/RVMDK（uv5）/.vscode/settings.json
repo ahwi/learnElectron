@@ -1,0 +1,8 @@
+{
+    "files.associations": {
+        "bsp_led.h": "c",
+        "stm32f4xx.h": "c",
+        "bsp_debug_usart.h": "c",
+        "bsp_usart_dma.h": "c"
+    }
+}
