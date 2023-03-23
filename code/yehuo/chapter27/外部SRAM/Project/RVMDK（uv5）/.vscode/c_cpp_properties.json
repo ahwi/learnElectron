@@ -3,18 +3,20 @@
         {
             "name": "工程模板",
             "includePath": [
-                "d:\\02.node\\01.note\\18.learnElectron\\code\\yehuo\\chapter21\\usart\\Libraries\\CMSIS\\Device\\ST\\STM32F4xx\\Include",
-                "d:\\02.node\\01.note\\18.learnElectron\\code\\yehuo\\chapter21\\usart\\Libraries\\CMSIS\\Include",
-                "d:\\02.node\\01.note\\18.learnElectron\\code\\yehuo\\chapter21\\usart\\Libraries\\STM32F4xx_StdPeriph_Driver\\inc",
-                "d:\\02.node\\01.note\\18.learnElectron\\code\\yehuo\\chapter21\\usart\\User",
-                "d:\\02.node\\01.note\\18.learnElectron\\code\\yehuo\\chapter21\\usart\\User\\led",
-                "d:\\02.node\\01.note\\18.learnElectron\\code\\yehuo\\chapter21\\usart\\User\\usart",
+                "d:\\02.node\\01.note\\18.learnElectron\\code\\yehuo\\chapter27\\外部SRAM\\Libraries\\CMSIS\\Device\\ST\\STM32F4xx\\Include",
+                "d:\\02.node\\01.note\\18.learnElectron\\code\\yehuo\\chapter27\\外部SRAM\\Libraries\\CMSIS\\Include",
+                "d:\\02.node\\01.note\\18.learnElectron\\code\\yehuo\\chapter27\\外部SRAM\\Libraries\\STM32F4xx_StdPeriph_Driver\\inc",
+                "d:\\02.node\\01.note\\18.learnElectron\\code\\yehuo\\chapter27\\外部SRAM\\User",
+                "d:\\02.node\\01.note\\18.learnElectron\\code\\yehuo\\chapter27\\外部SRAM\\User\\led",
+                "d:\\02.node\\01.note\\18.learnElectron\\code\\yehuo\\chapter27\\外部SRAM\\User\\usart",
+                "d:\\02.node\\01.note\\18.learnElectron\\code\\yehuo\\chapter27\\外部SRAM\\User\\i2c",
+                "d:\\02.node\\01.note\\18.learnElectron\\code\\yehuo\\chapter27\\外部SRAM\\User\\sram",
                 "C:\\Keil_v5\\ARM\\ARMCC\\include",
                 "C:\\Keil_v5\\ARM\\ARMCC\\include\\rw",
-                "d:\\02.node\\01.note\\18.learnElectron\\code\\yehuo\\chapter21\\usart\\Libraries\\CMSIS\\Device\\ST\\STM32F4xx\\Source\\Templates\\arm",
-                "d:\\02.node\\01.note\\18.learnElectron\\code\\yehuo\\chapter21\\usart\\Libraries\\CMSIS\\Device\\ST\\STM32F4xx\\Source\\Templates",
-                "d:\\02.node\\01.note\\18.learnElectron\\code\\yehuo\\chapter21\\usart\\Libraries\\STM32F4xx_StdPeriph_Driver\\src",
-                "d:\\02.node\\01.note\\18.learnElectron\\code\\yehuo\\chapter21\\usart"
+                "d:\\02.node\\01.note\\18.learnElectron\\code\\yehuo\\chapter27\\外部SRAM\\Libraries\\CMSIS\\Device\\ST\\STM32F4xx\\Source\\Templates\\arm",
+                "d:\\02.node\\01.note\\18.learnElectron\\code\\yehuo\\chapter27\\外部SRAM\\Libraries\\CMSIS\\Device\\ST\\STM32F4xx\\Source\\Templates",
+                "d:\\02.node\\01.note\\18.learnElectron\\code\\yehuo\\chapter27\\外部SRAM\\Libraries\\STM32F4xx_StdPeriph_Driver\\src",
+                "d:\\02.node\\01.note\\18.learnElectron\\code\\yehuo\\chapter27\\外部SRAM"
             ],
             "defines": [
                 "USE_STDPERIPH_DRIVER",
