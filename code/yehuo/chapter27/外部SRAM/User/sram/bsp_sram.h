@@ -15,6 +15,8 @@ FSMCÒý½Å:
  * 
  */
 
+#define Bank1_SRAM3_ADDR    ((uint32_t)0x68000000)
+
 // FSMC_A0~A18 ÐÐµØÖ·
 #define FSMC_A0_GPIO_PORT           GPIOF
 #define FSMC_A0_GPIO_CLCK           RCC_AHB1Periph_GPIOF
