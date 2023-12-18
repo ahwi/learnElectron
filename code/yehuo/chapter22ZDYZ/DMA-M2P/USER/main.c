@@ -2,7 +2,7 @@
 #include "delay.h"
 #include "usart.h"
 #include "led.h"
-#include "myUsart.h"
+#include "usart_dma.h"
 
 void delay(__IO u32 nCount);
 
@@ -11,14 +11,23 @@ int main(void)
 	// 初始化LED
 	LED_Init();
 	
-	// 串口配置
-	USART_Configuration();
+	// 初始化串口
+	usart_configuraion();
 
-    // Usart_SendString(USART1, "hello\r\n");
+	// 串口dma配置
+	usart_dma_configuration();
+	
+	// USART1向DMA发出DMA请求
+  USART_DMACmd(USART1, USART_DMAReq_Tx, ENABLE);
+	
+	
 	while(1){
-		Usart_SendString(USART1, "hello\r\n");
-		
+		LED0 = 1;
+		LED1 = 1;
 		delay(0x9ffffff);
+		LED0 = 0;
+		LED1 = 0;
+	  delay(0x9ffffff);
 	}
 
 }

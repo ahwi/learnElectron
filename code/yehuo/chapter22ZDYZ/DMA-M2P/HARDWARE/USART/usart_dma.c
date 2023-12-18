@@ -5,18 +5,53 @@ uint8_t dataArray[10];
 
 
 /**
-* @brief 配置串口的dma功能
+* @brief 配置串口
 */
-void usart_configuraion()
+void usart_configuraion(void)
 {
+	GPIO_InitTypeDef GPIO_InitStruct;
+	USART_InitTypeDef USART_InitStruct;
+	
+	// 初始化串口
+	// USART1_TX PA9; USART1_RX PA10
+	GPIO_InitStruct.GPIO_Pin = GPIO_Pin_9;
+	GPIO_InitStruct.GPIO_Mode = GPIO_Mode_AF;
+	GPIO_InitStruct.GPIO_OType = GPIO_OType_PP;
+	GPIO_InitStruct.GPIO_PuPd = GPIO_PuPd_UP;
+	GPIO_InitStruct.GPIO_Speed = GPIO_Speed_100MHz;
+	GPIO_Init(GPIOA, &GPIO_InitStruct);
+	GPIO_InitStruct.GPIO_Pin = GPIO_Pin_10;
+	GPIO_Init(GPIOA, &GPIO_InitStruct);
+	
+	// GPIO复用为串口
+	GPIO_PinAFConfig(GPIOA, GPIO_PinSource9, GPIO_AF_USART1);
+	GPIO_PinAFConfig(GPIOA, GPIO_PinSource10, GPIO_AF_USART1);
+	
+	// 初始化GPIO/串口时钟
+	RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOA, ENABLE);
+	RCC_APB2PeriphClockCmd(RCC_APB2Periph_USART1, ENABLE);
+	
+	
 
+	USART_InitStruct.USART_BaudRate = USART_BAUDRATE;
+  USART_InitStruct.USART_WordLength = USART_WordLength_8b;
+  USART_InitStruct.USART_StopBits = USART_StopBits_1;
+  USART_InitStruct.USART_Parity = USART_Parity_No;
+  USART_InitStruct.USART_Mode = USART_Mode_Rx | USART_Mode_Tx;
+  USART_InitStruct.USART_HardwareFlowControl = USART_HardwareFlowControl_None;
+	
+	// 初始化串口
+	USART_Init(USART1, &USART_InitStruct);
+	
+	// 使能串口
+	USART_Cmd(USART1, ENABLE);
 }
 
 
 /**
 * @brief 配置串口的dma功能
 */
-void usart_dma_configuration()
+void usart_dma_configuration(void)
 {
 	DMA_InitTypeDef DMA_InitStruct;
 	
