@@ -5,6 +5,6 @@
 
 #define I2C_SPEED 400000
 #define I2C_ADDR  0xA0
-
+#define EEPROM_ADDR 0x50
 
 #endif

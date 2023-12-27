@@ -523,6 +523,11 @@
               <FileType>1</FileType>
               <FilePath>..\HARDWARE\USART\usart_dma.c</FilePath>
             </File>
+            <File>
+              <FileName>i2c_ee.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\HARDWARE\I2C\i2c_ee.c</FilePath>
+            </File>
           </Files>
         </Group>
       </Groups>
