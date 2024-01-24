@@ -7,7 +7,7 @@
 #define LED0 PFout(9) //DS0
 #define LED1 PFout(10)	//DS1
 
-#define digitalToggle(p, i) {p->ODR ^= i;} //输出反正状态
+#define digitalToggle(p, i) {p->ODR ^= i;} //输出反转状态
 
 // 定义控制IO的宏
 #define LED0_TOGGLE digitalToggle(GPIOF, GPIO_Pin_9)

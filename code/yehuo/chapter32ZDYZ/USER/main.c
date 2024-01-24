@@ -24,9 +24,9 @@ int main(void)
 	while(1)
 	{
 		LED0 = 0;
-		Delay(0xffff);
+		Delay(0x9ffffff);
 		LED0 = 1;
-		Delay(0xffff);
+		Delay(0x9ffffff);
 		i = ~i;
 		//delay_ms(1000);
 		// LCD_Test();
