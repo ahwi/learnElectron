@@ -49,12 +49,9 @@ void TIM_Init(void)
 
 void TIM6_DAC_IRQHandler(void)
 {
-	static int i = 0;
 	if(TIM_GetITStatus(TIM6, TIM_IT_Update) == SET){
 		TIM_ClearFlag(TIM6, TIM_IT_Update);
-		// LED0_TOGGLE;
-		LED0 = i;
-		i = ~i;
+		LED0_TOGGLE
 	}
 	
 }
