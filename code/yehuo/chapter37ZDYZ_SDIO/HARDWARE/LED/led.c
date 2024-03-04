@@ -18,4 +18,3 @@ void LED_Init(void)
 	GPIO_Init(GPIOF, &GPIO_InitStructure);//初始化GPIO
 	GPIO_SetBits(GPIOF, GPIO_Pin_9|GPIO_Pin_10);	//GPIOF9,F10设置高，灯灭
 }
-
