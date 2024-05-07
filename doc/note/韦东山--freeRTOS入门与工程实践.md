@@ -3,6 +3,8 @@
 学习资料：
 
 * 视频链接：https://www.bilibili.com/video/BV1Jw411i7Fz
+* 资料：https://download.100ask.net/boards/St/DShanMCU-F103/index.html
+* 百度网盘：`韦东山--学习资料/DShanMCU-F103开发板资料`
 
 ## P3 讲师介绍/课程风格/项目展示
 
