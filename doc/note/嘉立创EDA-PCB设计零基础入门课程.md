@@ -450,6 +450,88 @@ PCB布局原则：先从复杂的地方布线，一般先从MCU开始
 
 ![image-20240527230427832](嘉立创EDA-PCB设计零基础入门课程.assets/image-20240527230427832.png)
 
+### 07-2 PCB布线2
+
+**电源线铺铜**
+
+使用多边形铺铜
+
+![image-20240528203347591](嘉立创EDA-PCB设计零基础入门课程.assets/image-20240528203347591.png)
+
+设置铺铜方式为直连
+
+![image-20240528203848896](嘉立创EDA-PCB设计零基础入门课程.assets/image-20240528203848896.png)
+
+![image-20240528210633956](嘉立创EDA-PCB设计零基础入门课程.assets/image-20240528210633956.png)
+
+**直连铺铜和发散铺铜的区别**
+
+<font color=blue>直连铺铜</font>
+
+<img src="嘉立创EDA-PCB设计零基础入门课程.assets/image-20240528204736503.png" alt="image-20240528204736503" style="zoom:50%;" />
+
+<font color=blue>发散铺铜</font>
+
+<img src="嘉立创EDA-PCB设计零基础入门课程.assets/image-20240528204647755.png" alt="image-20240528204647755" style="zoom:50%;" />
+
+**电源部分画好之后的图**
+
+![image-20240528211806180](嘉立创EDA-PCB设计零基础入门课程.assets/image-20240528211806180.png)
+
+**差分对布线**
+
+选择`差分对布线`进行布线，`差分对等长调节`进行长度的调节
+
+![image-20240528214929936](嘉立创EDA-PCB设计零基础入门课程.assets/image-20240528214929936.png)
+
+布线的效果：
+
+<img src="嘉立创EDA-PCB设计零基础入门课程.assets/image-20240528214831770.png" alt="image-20240528214831770" style="zoom:50%;" />
+
+### 07-3 PCB布线3
+
+处理这种直角时，可以用圆弧90°进行过渡
+
+![image-20240528231642961](嘉立创EDA-PCB设计零基础入门课程.assets/image-20240528231642961.png)
+
+![image-20240528231704191](嘉立创EDA-PCB设计零基础入门课程.assets/image-20240528231704191.png)
+
+移除回路选项设置为 否
+
+<img src="嘉立创EDA-PCB设计零基础入门课程.assets/image-20240528231748825.png" alt="image-20240528231748825" style="zoom:50%;" />
+
+### 07-4 铺铜
+
+设置禁止铺铜区域：
+
+<img src="嘉立创EDA-PCB设计零基础入门课程.assets/image-20240528232737180.png" alt="image-20240528232737180" style="zoom:50%;" />
+
+<img src="嘉立创EDA-PCB设计零基础入门课程.assets/image-20240528232806056.png" alt="image-20240528232806056" style="zoom:50%;" />
+
+<img src="嘉立创EDA-PCB设计零基础入门课程.assets/image-20240528233448184.png" alt="image-20240528233448184" style="zoom:50%;" />
+
+两个晶振都设置禁止铺铜区域：
+
+![image-20240528233609762](嘉立创EDA-PCB设计零基础入门课程.assets/image-20240528233609762.png)
+
+**底层铺铜**
+
+
+
+
+
+<img src="嘉立创EDA-PCB设计零基础入门课程.assets/image-20240528233911410.png" alt="image-20240528233911410" style="zoom:50%;" />
+
+<img src="嘉立创EDA-PCB设计零基础入门课程.assets/image-20240528234021719.png" alt="image-20240528234021719" style="zoom:50%;" />
+
+<font color=blue>可以修改`设计规则`中的`网络间距`和`到边框/槽孔间距`</font>
+
+![image-20240528234400929](嘉立创EDA-PCB设计零基础入门课程.assets/image-20240528234400929.png)
+
+
+
+
+
 ## 工具：
 
 ### PCB走线载流计算器
