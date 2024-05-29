@@ -530,6 +530,78 @@ PCB布局原则：先从复杂的地方布线，一般先从MCU开始
 
 
 
+## 07-5 DRC设计规则检查
+
+<img src="嘉立创EDA-PCB设计零基础入门课程.assets/image-20240529210808556.png" alt="image-20240529210808556" style="zoom:50%;" />
+
+## 07-6 优化与丝印调整
+
+**添加过孔**
+
+给板子多打点GND过孔
+
+![image-20240529212532786](嘉立创EDA-PCB设计零基础入门课程.assets/image-20240529212532786.png)
+
+**丝印调整**
+
+`选中一个丝印-->右击查找-->查找全部`
+
+<img src="嘉立创EDA-PCB设计零基础入门课程.assets/image-20240529212717865.png" alt="image-20240529212717865" style="zoom:50%;" />
+
+线宽改成6mil，高度45mil
+
+<img src="嘉立创EDA-PCB设计零基础入门课程.assets/image-20240529212843388.png" alt="image-20240529212843388" style="zoom:50%;" />
+
+`布局-->属性位置-->属性位置：上边`
+
+<img src="嘉立创EDA-PCB设计零基础入门课程.assets/image-20240529212910244.png" alt="image-20240529212910244" style="zoom:50%;" />
+
+<img src="嘉立创EDA-PCB设计零基础入门课程.assets/image-20240529212930341.png" alt="image-20240529212930341" style="zoom:50%;" />
+
+<img src="嘉立创EDA-PCB设计零基础入门课程.assets/image-20240529213144854.png" alt="image-20240529213144854" style="zoom:50%;" />
+
+**添加泪滴**
+
+`工具-->泪滴-->应用`
+
+<img src="嘉立创EDA-PCB设计零基础入门课程.assets/image-20240529213414894.png" alt="image-20240529213414894" style="zoom:50%;" />
+
+
+
+<img src="嘉立创EDA-PCB设计零基础入门课程.assets/image-20240529213434627.png" alt="image-20240529213434627" style="zoom:50%;" />
+
+泪滴的效果（有圆弧过渡）：
+
+![image-20240529213633364](嘉立创EDA-PCB设计零基础入门课程.assets/image-20240529213633364.png)
+
+![image-20240529213702292](嘉立创EDA-PCB设计零基础入门课程.assets/image-20240529213702292.png)
+
+然后再重新铺铜和DRC检测
+
+
+
+**调整丝印**
+
+过滤中设置只选中`文本`和`元件属性`
+
+![image-20240529221634009](嘉立创EDA-PCB设计零基础入门课程.assets/image-20240529221634009.png)
+
+调整完丝印后：
+
+<img src="嘉立创EDA-PCB设计零基础入门课程.assets/image-20240529225105254.png" alt="image-20240529225105254" style="zoom:50%;" />
+
+**关联3D模型封装**
+
+略
+
+## 07-7 导入图片
+
+导入图片
+
+<img src="嘉立创EDA-PCB设计零基础入门课程.assets/image-20240529225614677.png" alt="image-20240529225614677" style="zoom:50%;" />
+
+导入图片到丝印层，就可以当作LOG之类的。
+
 
 
 ## 工具：
