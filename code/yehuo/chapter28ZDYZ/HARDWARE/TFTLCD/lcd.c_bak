@@ -2,6 +2,11 @@
 #include "usart.h"
 #include "delay.h"
 
+#if 1
+#define YEHUO 1	//使用野火接口
+#else
+#define ZDYZ 1	//使用正点原子接口
+#endif
 
 //根据液晶扫描方向而变化的XY像素宽度
 //调用NT35510_GramScan函数设置方向时会自动更改
@@ -31,6 +36,67 @@ __inline uint16_t LCD_Read_Data(void);
 __inline void LCD_WriteReg(uint16_t LCD_Reg, uint16_t LCD_RegValue);
 __inline uint16_t LCD_ReadReg(uint16_t LCD_Reg);
 
+
+#ifdef YEHUO  //野火风格的接口
+
+/**
+ * @brief 向LCD控制器写入命令
+ * @param usCmd: 要写入的命令（表寄存器）
+ * @return __inline 
+ */
+__inline void LCD_Write_Cmd(uint16_t usCmd)
+{
+    *(__IO uint16_t *) ( FSMC_Addr_NT35510_CMD ) = usCmd;
+}
+
+/**
+ * @brief 向LCD控制器写入数据 
+ * @param usData : 要写入的数据
+ * @retval 无
+ */
+__inline void LCD_Write_Data(uint16_t usData)
+{
+    *(__IO uint16_t *) ( FSMC_Addr_NT35510_DATA ) = usData;
+}
+
+/**
+ * @brief 从LCD控制器读取数据 
+ * @param 无
+ * @retval 读取到的数据
+ */
+__inline uint16_t LCD_Read_Data(void)
+{
+    return (* (__IO uint16_t *)(FSMC_Addr_NT35510_DATA));
+}
+
+/**
+ * @brief 写寄存器 
+ * @param LCD_Reg  寄存器地址
+ * @param LCD_RegValue 要写入的数据
+ * @return 无
+ */
+__inline void LCD_WriteReg(uint16_t LCD_Reg, uint16_t LCD_RegValue)
+{
+	LCD_Write_Cmd(LCD_Reg);
+	LCD_Write_Data(LCD_RegValue);
+}
+
+/**
+ * @brief 读寄存器
+ * 
+ * @param LCD_Reg: 寄存器地址 
+ * @return： 读到的数据
+ */
+__inline uint16_t LCD_ReadReg(uint16_t LCD_Reg)
+{
+	LCD_Write_Cmd(LCD_Reg);
+	delay_us(5);
+	return LCD_Read_Data();
+} 
+#endif
+
+
+#ifdef ZDYZ
 
 /** 
  * @brief 向LCD控制器写入命令
@@ -91,7 +157,146 @@ u16 LCD_ReadReg(u16 LCD_Reg)
 	return LCD_Read_Data();
 }
 
+#endif
 
+
+
+#ifdef YEHUO	//野火风格的接口
+/**
+ * @brief LCD FSMC 模式配置
+ * 		配置为模式B，且读写时序复用
+ * @param 无
+ * @retval 无
+ */
+static void NT35510_FSMC_Config(void)
+{
+    FSMC_NORSRAMInitTypeDef FSMC_NORSRAMInitStructure;
+    FSMC_NORSRAMTimingInitTypeDef readWriteTiming;
+
+    // 使能FSMC时钟
+    RCC_AHB3PeriphClockCmd(RCC_AHB3Periph_FSMC, ENABLE);
+
+    // 地址建立时间（ADDSET）为16个HCLK (16 * 1/168)M=96ns
+    // readWriteTiming.FSMC_AddressSetupTime = 0xF;   //地址建立时间
+    readWriteTiming.FSMC_AddressSetupTime = 0x04;   //地址建立时间
+    // 数据保持时间（DATASET） + 1个HCLK = 5、168M=30ns
+    // readWriteTiming.FSMC_DataSetupTime = 60;   //数据建立时间 60个HCK = 6*60=360ns
+    readWriteTiming.FSMC_DataSetupTime = 0x04;   //数据建立时间 60个HCK = 6*60=360ns
+    // 选择控制的模式
+    // 模式B，异步NOR FLASH模式，与NT35510的8080时序匹配
+    readWriteTiming.FSMC_AccessMode = FSMC_AccessMode_B;
+
+    // 以下配置与模式B无关
+    // 地址保持时间（ADDHLD）模式A未用到
+    readWriteTiming.FSMC_AddressHoldTime = 0x00;    //地址保持时间
+    // 设置总线转换周期，仅用于复用模式的NOR操作
+    readWriteTiming.FSMC_BusTurnAroundDuration = 0x00; 
+    // 设置时钟分频，仅用于同步类型的存储器
+    readWriteTiming.FSMC_CLKDivision = 0x00;
+    // 数据保持时间，仅用于同步型的NOR
+    readWriteTiming.FSMC_DataLatency = 0x00;
+
+    FSMC_NORSRAMInitStructure.FSMC_Bank             = FSMC_Bank1_NORSRAMx;
+    FSMC_NORSRAMInitStructure.FSMC_DataAddressMux   = FSMC_DataAddressMux_Disable;
+    FSMC_NORSRAMInitStructure.FSMC_MemoryType       = FSMC_MemoryType_NOR;
+    FSMC_NORSRAMInitStructure.FSMC_MemoryDataWidth  = FSMC_MemoryDataWidth_16b;
+    FSMC_NORSRAMInitStructure.FSMC_BurstAccessMode  = FSMC_BurstAccessMode_Disable;
+    FSMC_NORSRAMInitStructure.FSMC_WaitSignalPolarity  = FSMC_WaitSignalPolarity_Low;
+    FSMC_NORSRAMInitStructure.FSMC_AsynchronousWait  = FSMC_AsynchronousWait_Disable;
+    FSMC_NORSRAMInitStructure.FSMC_WrapMode  = FSMC_WrapMode_Disable;
+    FSMC_NORSRAMInitStructure.FSMC_WaitSignalActive  = FSMC_WaitSignalActive_BeforeWaitState;
+    FSMC_NORSRAMInitStructure.FSMC_WriteOperation  = FSMC_WriteOperation_Enable;
+    FSMC_NORSRAMInitStructure.FSMC_WaitSignal  = FSMC_WaitSignal_Disable;
+    FSMC_NORSRAMInitStructure.FSMC_ExtendedMode  = FSMC_ExtendedMode_Enable;
+    FSMC_NORSRAMInitStructure.FSMC_WriteBurst  = FSMC_WriteBurst_Disable;
+    FSMC_NORSRAMInitStructure.FSMC_ReadWriteTimingStruct  = &readWriteTiming;
+    FSMC_NORSRAMInitStructure.FSMC_WriteTimingStruct  = &readWriteTiming;
+
+    FSMC_NORSRAMInit(&FSMC_NORSRAMInitStructure);
+
+    //使能FSMC_Bank1_NORSRAM3
+    FSMC_NORSRAMCmd(FSMC_Bank1_NORSRAMx, ENABLE);
+
+}
+
+/**
+ * @brief LCD背光LED控制
+ * @param enumState : 决定是否使能背光LED 
+ *      该参数为以下值之一：
+ *      @arg ENABLE: 使能背光LED
+ *      @arg DISABLE: 禁用背光LED
+ * @retval 无
+ */
+void BackLed_Control(FunctionalState enumState)
+{
+    if(enumState)
+        GPIO_SetBits(NT35510_BK_PORT, NT35510_BK_PIN);
+    else
+        GPIO_ResetBits(NT35510_BK_PORT, NT35510_BK_PIN);
+}
+
+/**
+ * @brief 设置NT35510的GRAM扫描方向 
+ * 
+ * @param dir: 选择GRAM的扫描方向
+ * 		0代表从左到右，从上到下
+ * 		其他方向参考LCD手册的0x3600指令，只要关注MY MX MV三个字段的值
+ * 		注：正点原子屏幕的扫描方向值和野火屏幕的扫描方向值不一样
+ */
+void LCD_Display_Dir(uint8_t ucOption)
+{
+    //参数检查，只可输入0-7
+    if(ucOption > 7)
+        return;
+    
+    //根据模式更新LCD_SCAN_MODE的值，主要用于触摸屏选择计算参数
+    if(ucOption%2 == 0)
+    {
+        //0 2 4 6模式下x方向像素宽度为480，Y方向为854
+        LCD_X_LENGTH = NT35510_LESS_PIXEL;
+        LCD_Y_LENGTH = NT35510_MORE_PIXEL;
+    }
+    else
+    {
+        //1 2 5 7模式下x方向像素宽度为854，Y方向为480
+        LCD_X_LENGTH = NT35510_MORE_PIXEL;
+        LCD_Y_LENGTH = NT35510_LESS_PIXEL;
+    }
+
+	lcddev.wramcmd = 0x2C00;
+	lcddev.setxcmd = 0x2A00;
+	lcddev.setycmd = 0x2B00;
+	lcddev.width = 480;
+	lcddev.height = 800;
+    
+    //0x36命令参数的高3位可用于设置GRAM扫描方向
+    LCD_Write_Cmd(0x36);
+    LCD_Write_Data(0x00 | (ucOption<<5)); //根据ucOption的值设置LCD参数，共0-7种模式
+
+    LCD_Write_Cmd(CMD_SetCoordinateX);
+    LCD_Write_Data(0x00);  /*x 起始坐标高8位 */
+    LCD_Write_Cmd(CMD_SetCoordinateX+1);
+    LCD_Write_Data(0x00);  /*x 起始坐标低8位 */
+    LCD_Write_Cmd(CMD_SetCoordinateX+2);
+    LCD_Write_Data(((LCD_X_LENGTH-1) >> 8) &0xFF);  /*x 结束坐标高8位 */
+    LCD_Write_Cmd(CMD_SetCoordinateX+3);
+    LCD_Write_Data((LCD_X_LENGTH-1) & 0xFF);  /*x 结束坐标低8位 */
+
+    LCD_Write_Cmd(CMD_SetCoordinateY);
+    LCD_Write_Data(0x00);  /*y 起始坐标高8位 */
+    LCD_Write_Cmd(CMD_SetCoordinateY+1);
+    LCD_Write_Data(0x00);  /*y 起始坐标低8位 */
+    LCD_Write_Cmd(CMD_SetCoordinateY+2);
+    LCD_Write_Data(((LCD_Y_LENGTH-1) >> 8) &0xFF);  /*y 结束坐标高8位 */
+    LCD_Write_Cmd(CMD_SetCoordinateY+3);
+    LCD_Write_Data((LCD_Y_LENGTH-1) &0xFF);  /*y 结束坐标低8位 */
+
+}
+
+#endif
+
+
+#ifdef ZDYZ	//正点原子风格的代码
 /**
  * @brief LCD FSMC 模式配置
  * 		配置为模式A，且读写时序分开
@@ -279,6 +484,8 @@ void LCD_Display_Dir(u8 dir)
 	LCD_Scan_Dir(0);	//默认扫描方向
 }	 
 
+#endif
+
 /********************公用代码*******************************/
 /**
  * @brief 初始化NT35510的IO引脚
@@ -300,8 +507,12 @@ static void NT35510_GPIO_Config(void)
         NT35510_D6_CLK|NT35510_D7_CLK|NT35510_D8_CLK|
         NT35510_D9_CLK|NT35510_D10_CLK|NT35510_D11_CLK|
         NT35510_D12_CLK|NT35510_D13_CLK|NT35510_D14_CLK|
-        NT35510_D15_CLK|NT35510_D1_CLK, ENABLE
-		);
+        NT35510_D1_CLK, ENABLE);
+
+	// RCC_AHB1PeriphClockCmd(
+	// 	RCC_AHB1Periph_GPIOB|RCC_AHB1Periph_GPIOD|
+	// 	RCC_AHB1Periph_GPIOE|RCC_AHB1Periph_GPIOF|
+	// 	RCC_AHB1Periph_GPIOG, ENABLE);//使能PD,PE,PF,PG时钟  
     
     //配置FSMC相对于的数据线，FSMC-D0~D15
     GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;		//推挽输出
@@ -972,6 +1183,8 @@ void LCD_Clear(u16 color)
 	{
 		LCD->LCD_RAM = color;
 	}
+
+
 }
 
 /**
@@ -980,20 +1193,22 @@ void LCD_Clear(u16 color)
  */
 void NT35510_Init(void)
 {
-	NT35510_GPIO_Config();
-	NT35510_FSMC_Config();
+	vu32 i=0;
 
+    NT35510_GPIO_Config();
+    NT35510_FSMC_Config();
+
+ 	delay_ms(50); // delay 50 ms 
+ 	LCD_WriteReg(0x0000,0x0001);
 	delay_ms(50); // delay 50 ms 
-	LCD_WriteReg(0x0000,0x0001);
-	delay_ms(50); // delay 50 ms 
-	lcddev.id = LCD_ReadReg(0x0000);   
-	lcddev.id = 0x5510;	//LCD_ReadReg读取有问题，这里直接赋值   
+  	lcddev.id = LCD_ReadReg(0x0000);   
+  	lcddev.id = 0x5510;	//LCD_ReadReg读取有问题，这里直接赋值   
 
 	NT35510_REG_Config(); // LCD初始化(厂商给的初始化指令)
 	LCD_Display_Dir(LCD_SCAN_MODE);		//设置扫描方向,默认为竖屏
 
 	BackLed_Control(ENABLE);	//点亮背光
-
+	
 	LCD_Clear(WHITE);
 }
 
