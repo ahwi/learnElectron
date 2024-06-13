@@ -4130,19 +4130,207 @@ DCMI信号波形图：
 
 * `DCMI_HSYNC`和`DCMI_VSYNC`的有效状态为1
 
-  > 注意：这里的有效状态实际上对应的是指示数据再并行接口上无效时，HSYNC/VSYNC引脚上面的引脚电平
+  > 注意：这里的有效状态实际上对应的是指示数据在并行接口上无效时，HSYNC/VSYNC引脚上面的引脚电平
+
+<font color=blue>本章用到的数据位宽</font>
+
+本章用到DCMI的8位数据宽度（`DCMI_CR`的`EDM[1:0]`设为00），此时`DCMI_D0~D7`有效，`DCMI_D8~D13`无效。
+
+此时，需要4个像素时钟来捕获1个像素数据。低字节在前，高字节在后。
+
+> 所以，摄像头输出的数据也配置为低字节在前，高字节在后，否则程序上还得处理字节顺序
+
+![image-20240613090646273](精通STM43F4 库函数版笔记.assets/image-20240613090646273.png)
+
+DCMI 接口支持DMA传输，设置`DCMI_CR`的`CAPTURE`位为 1 时，激活DMA接口。摄像头接口每次在其寄存器中收到一个完整的32位数据块时，都将触发一个DMA请求。
+
+<font color=blue>硬件同步模式</font>
+
+> 详细介绍请参考《STM32F4xx 中文数据手册》第 13.5.3 节
+
+硬件同步模式下将使用两个同步信号（HSYNC/VSYNC），根据摄像头模块/模式的不同，可能在水平/垂直同步期间内发送数据。由于系统会忽略HSYNC/VSYNC有效电平期间内接收的所有数据，HSYNC/VSYNC信号相当于消影信号。
+
+为了正确地将图像传输到 DMA/RAM 缓冲区，数据传输将与 VSYNC 信号同步。选择硬件同步模式并启用捕获（`DCMI_CR`中的`CAPTURE`位置1）时，数据传输将与 VSYNC 信号的无效电平同步（开始下一帧时）。之后传输便可以连续执行，由 DMA 将连续帧传输到多个连续的缓冲区或一个具有循环特性的缓冲区。为了允许 DMA 管理连续帧，每一帧结束时都将激活VSIF（垂直同步中断标志，即帧中断），我们可以利用这个帧中断来判断是否有一帧数据采集完成，方便处理数据。
+
+DCMI接口的捕获模式支持：
+
+* 快照模式
+
+* 连续采集模式
+
+  > 由`DCMI_CR`中的`CM`为设置
+
+DCMI接口还支持4个字深度的FIFO：
+
+DCMI接口配有一个简单的 FIFO 控制器，每次摄像头接口从 AHB 读取数据时读指针递增，每次摄像头接口向FIFO 写入数据时写指针递增。因为没有溢出保护，如果数据传输率超过 AHB 接口能够承受的速率，FIFO 中的数据就会被覆盖。如果同步信号出错，或者 FIFO 发生溢出，FIFO 将复位，DCMI 接口将等待新的数据帧开始。
+
+#### 3. `ALIENTEK OV2640`摄像头模块
 
 
 
+![image-20240613092534256](精通STM43F4 库函数版笔记.assets/image-20240613092534256.png)
 
+![image-20240613092550689](精通STM43F4 库函数版笔记.assets/image-20240613092550689.png)
 
+ALIENTEK OV2640 摄像头模块：
 
+* 采用 8 位数据输出接口
+* 自带 24M 有源晶振
+* 采用百万高清镜头
+* 单独 3.3V 供电即可正常使用。
+* 自带了稳压芯片，用于提供OV2640稳定的2.8V和1.3V工作电压。
 
+模块通过一个`2*9`的双排排针与外部通信，与外部的通信信号如下表所示：
 
+![image-20240613092828142](精通STM43F4 库函数版笔记.assets/image-20240613092828142.png)
 
+#### 4. 本章的配置
 
+OV2640的配置：
 
+* 默认配置为UXGA输出（即`1600*1200`的分辨率）
+* VSYNC 高电平有效
+* HREF 高电平有效
+* 输出数据在PCLK的下降沿输出（即上升沿的时候，MCU才可采集）
 
+对应的STM32F4的DCMI接口设置：
+
+* VSYNC低电平有效
+* HSYNC低电平有效
+* PIXCLK上升沿有效
+
+> DCMI的这些配置都是通过`DCMI_CR`寄存器控制
+
+<font color=blue>`DCMI_CR`寄存器</font>
+
+![image-20240613134831943](精通STM43F4 库函数版笔记.assets/image-20240613134831943.png)
+
+* ENABLE：该位用于设置是否使能 DCMI。在使能之前，必须将其他配置设置好。
+
+* FCRC[1:0]：这两个位用于帧率控制。我们捕获所有帧，设置为00即可。
+
+* VSPOL：该位用于设置垂直同步极性。根据前面所说，应该设置为 0。
+
+* HSPOL：该位用于设置水平同步极性。同样应该设置为 0。
+
+* PCKPOL：该位用于设置像素时钟极性。我们用上升沿捕获，设置为 1。
+
+* CM：该位用于设置捕获模式。我们用连续采集模式，设置为0即可。
+
+* CAPTURE：该位用于使能捕获。我们设置为1，该位使能后，将激活DMA，DCMI 等待第一帧开始，然后生成DMA请求将收到的数据传输到目标存储器中。
+
+  > 注意：该位必须在 DCMI的其他配置（包括 DMA）都设置好了之后才设置。
+
+**库函数实现DCMI驱动OV2640的步骤：**
+
+<font color=blue>1. 配置OV2640控制引脚，并配置 OV2640 工作模式</font>
+
+* 通过`OV_SCL`和`OV_SDA`进行寄存器配置
+
+* 配置`OV_PWDN/OV_RESET`的IO状态
+
+  * 先设置`OV_PWDN=0`，退出掉电模式
+
+  * 然后拉低`OV_RESET`复位OV2640
+
+  * 在设置`OV_RESET`为1，结束复位
+
+  * 然后在对OV2640的众多寄存器进行配置
+
+    > 这里配置为UXGA输出，然后根据需要设置成RGB565输出模式或JPEG输出模式
+
+<font color=blue>2. 配置相关引脚的模式和复用功能(AF13)，使能时钟</font>
+
+设置DCMI接口与摄像头模块连接的IO口，使能IO和DCMI时钟，然后设置相关IO口为复用功能模式（DCMI复用）。
+
+<font color=blue>3. 配置DCMI相关设置</font>
+
+* 配置`DCMI_CR`寄存器，包括`VSPOL/HSPOL/PCKPOL`数据宽度等重要参数
+* 开启帧中断，编写DCMI中断服务函数，方便进行数据处理（尤其是JPEG模式的时候）
+* 对于CAPTURE位，等待DMA配置好之后再设置
+* 对于OV2640输出的JPEG数据，我们不使用DCMI的JPEG数据模式（实测设不设置都一样），而是采用正常模式，直接采集。
+
+DCMI相关寄存器通过`DCMI_Init()`函数配置
+
+传入的结构体参数
+
+```c
+typedef struct
+{
+    uint16_t DCMI_CaptureMode; 
+    uint16_t DCMI_SynchroMode; 
+    uint16_t DCMI_PCKPolarity; 
+    uint16_t DCMI_VSPolarity; 
+    uint16_t DCMI_HSPolarity; 
+    uint16_t DCMI_CaptureRate; 
+    uint16_t DCMI_ExtendedDataMode; 
+} DCMI_InitTypeDef;
+```
+
+* `DCMI_CaptureMode`：设置捕获模式，连续捕获或快照模式。本实验采用连续捕获模式，通过DMA连续传输数据到目标存储区。
+* `DCMI_SynchroMode`：同步方式，硬件同步或内嵌码同步。本实验采用硬件同步方式。
+* `DCMI_PCKPolarity`：设置像素时钟极性为上升沿有效还是下降沿有效。本实验使用上升沿有效。
+* `DCMI_VSPolarity`：设置垂直同步极性，VSYNC为低电平有效还是高电平有效。本实验使用低电平有效。
+* `DCMI_HSPolarity`：设置水平同步极性，HSYNC为低电平还是高电平有效。本实验设置为低电平有效。
+* `DCMI_CaptureRate`：设置帧捕获率，可设置全帧捕获，2帧捕获一帧，4帧捕获一帧等。本实验设置为全帧捕获。
+* `DCMI_ExtendedDataMode`：设置扩展数据模式，每个像素时钟捕获8/10/12/14位数据。本实验设置为8位。
+
+DCMI的初始化实例如下：
+
+```c
+DCMI_InitTypeDef DCMI_InitStructure;
+DCMI_InitStructure.DCMI_CaptureMode=DCMI_CaptureMode_Continuous;//连续模式
+DCMI_InitStructure.DCMI_CaptureRate=DCMI_CaptureRate_All_Frame;//全帧捕获
+DCMI_InitStructure.DCMI_ExtendedDataMode= DCMI_ExtendedDataMode_8b;//8 位格式 
+DCMI_InitStructure.DCMI_HSPolarity= DCMI_HSPolarity_Low;//HSYNC 低电平有效
+DCMI_InitStructure.DCMI_PCKPolarity= DCMI_PCKPolarity_Rising;//PCLK 上升沿有效
+DCMI_InitStructure.DCMI_SynchroMode= DCMI_SynchroMode_Hardware;//硬件同步
+DCMI_InitStructure.DCMI_VSPolarity=DCMI_VSPolarity_Low;//VSYNC 低电平有效
+DCMI_Init(&DCMI_InitStructure);//初始化 DCMI
+```
+
+<font color=blue>4. 配置DMA</font>
+
+* 本章采用连续模式采集，将采集到的数据输出到LCD(RGB565模式)或内存(JPEG模式)
+
+* 源地址都是`DCMI_DR`
+* 目的地址可能是`LCD->RAM`或者SRAM的地址
+* DCMI的DMA传输采用的是DMA2数据流1的通道1来实现的
+
+本章的DMA配置源码如下：
+
+```c
+DMA_InitTypeDef DMA_InitStructure;
+DMA_InitStructure.DMA_Channel = DMA_Channel_1; //通道 1 DCMI 通道
+DMA_InitStructure.DMA_PeripheralBaseAddr = (u32)&DCMI->DR;//外设地址为:DCMI->DR
+DMA_InitStructure.DMA_Memory0BaseAddr = (u32)&LCD->LCD_RAM;//存储器 0 地址
+DMA_InitStructure.DMA_DIR = DMA_DIR_PeripheralToMemory;//外设到存储器模式
+DMA_InitStructure.DMA_BufferSize = 1;//数据传输量
+DMA_InitStructure.DMA_PeripheralInc = DMA_PeripheralInc_Disable;//外设非增量模式
+DMA_InitStructure.DMA_MemoryInc = DMA_MemoryInc_Enable;//存储器增量模式
+DMA_InitStructure.DMA_PeripheralDataSize=DMA_PeripheralDataSize_Word;
+DMA_InitStructure.DMA_MemoryDataSize = DMA_MemoryDataSize_Word;
+DMA_InitStructure.DMA_Mode = DMA_Mode_Circular;// 使用循环模式
+DMA_InitStructure.DMA_Priority = DMA_Priority_High;//高优先级
+DMA_InitStructure.DMA_FIFOMode=DMA_FIFOMode_Enable; //FIFO 模式 
+DMA_InitStructure.DMA_FIFOThreshold=DMA_FIFOThreshold_Full;//使用全 FIFO 
+DMA_InitStructure.DMA_MemoryBurst=DMA_MemoryBurst_Single;//外设突发单次传输
+DMA_InitStructure.DMA_PeripheralBurst=DMA_PeripheralBurst_Single;
+DMA_Init(DMA2_Stream1, &DMA_InitStructure);//初始化 DMA Stream
+```
+
+<font color=blue>5. 设置OV2640的图像输出大小，使能DCMI捕获</font>
+
+图像输出大小设置，分两种情况：
+
+* RGB565模式下，根据LCD的尺寸，设置输出图像大小，以实现全屏显示（图像可能因缩放而变形）
+* JPEG模式下，可以自由设置输出图像大小（可不缩放）
+
+最后开启DCMI捕获，即可正常工作：
+
+```c
+DCMI_CaptureCmd(ENABLE);//DCMI 捕获使能
+```
 
 
 
