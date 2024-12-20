@@ -508,3 +508,54 @@ modprobe newchrled.ko //加载驱动
 rmmod newchrled.ko
 ```
 
+
+
+## 第45章 pinctrl和gpio子系统实验
+
+linux内核提供了pinctrl和gpio子系统用于GPIO驱动
+
+### 45.1 pinctrl 子系统
+
+pinctrl子系统主要工作内容：
+1. 获取设备树中pin信息
+2. 根据获取到的pin信息来设置pin的复用功能
+3. 根据获取到的pin信息来设置pin的电气特性，比如上/下拉、速度、驱动能力等
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
