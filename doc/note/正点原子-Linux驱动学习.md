@@ -521,41 +521,587 @@ pinctrl子系统主要工作内容：
 2. 根据获取到的pin信息来设置pin的复用功能
 3. 根据获取到的pin信息来设置pin的电气特性，比如上/下拉、速度、驱动能力等
 
+#### 45.1.1 I.MX6ULL 的pinctrl 子系统驱动
 
+##### 1. PIN 配置信息详解
 
+一般会在设备树里面创建一个节点来描述PIN的配置信息。
 
+打开`imx6ull.dsi`文件，找到一个iomuxc的节点：
 
+```c
+iomuxc: iomuxc@020e0000 {
+    compatible = "fsl,imx6ul-iomuxc";
+    reg = <0x020e0000 0x4000>;
+};
+```
 
+打开`imx6ull-alientek-emmc.dts`，里面有对`iomuxc`节点追加的数据：
 
+```c
+&iomuxc {
+pinctrl-names = "default";
+pinctrl-0 = <&pinctrl_hog_1>;
+imx6ul-evk {
+        pinctrl_hog_1: hoggrp-1 {
+            fsl,pins = <
+            MX6UL_PAD_UART1_RTS_B__GPIO1_IO19 0x17059
+            MX6UL_PAD_GPIO1_IO05__USDHC1_VSELECT 0x17059
+            MX6UL_PAD_GPIO1_IO09__GPIO1_IO09 0x17059
+            MX6UL_PAD_GPIO1_IO00__ANATOP_OTG1_ID 0x13058
+            >;
+        };
+        ..
+        pinctrl_flexcan1: flexcan1grp{
+            fsl,pins = <
+            MX6UL_PAD_UART3_RTS_B__FLEXCAN1_RX 0x1b020
+            MX6UL_PAD_UART3_CTS_B__FLEXCAN1_TX 0x1b020
+            >;
+        };
+        ..
+        pinctrl_wdog: wdoggrp {
+            fsl,pins = <
+            MX6UL_PAD_LCD_RESET__WDOG1_WDOG_ANY 0x30b0
+            >;
+        };
+    };
+};
+```
 
+* `pinctrl_hog_1` 子节点是和热插拔有关的 PIN 集合
+* `pinctrl_flexcan1` 子节点是flexcan1这个外设所使用的PIN
 
+* `pinctrl_wdog` 子节点是wdog外设所使用的PIN
 
+<font color=blue>如何添加PIN的配置信息：</font>
 
+以`pinctrl_hog_1`子节点的PIN配置信息为例
 
+```c
+MX6UL_PAD_UART1_RTS_B__GPIO1_IO19 0x17059
+```
 
+`UART1_RTS_B`这个PIN是SD卡是否插入的检测引脚。
 
+* `MX6UL_PAD_UART1_RTS_B__GPIO1_IO19`的宏定义在`arch/arm/boot/dts/imx6ul-pinfunc.h`
 
+  ```c
+  #define MX6UL_PAD_UART1_RTS_B__GPIO1_IO19 0x0090 0x031C 0x0000 0x5 0x0
+  ```
 
+  这5个值代标的意思是 `mux_reg conf_reg input_reg mux_mode input_val`
 
+* `0x17059`：对应`config_reg`寄存器值，此值由用户自行设置，通过此值来设置IO的上/下拉、驱动能力和速度等。
 
+##### 2. PIN驱动程序讲解
 
+寄存器和寄存器值配置好后，Linux内核的驱动文件就会根据这些值来做相应的初始化。
 
+通过iomuxc节点的compatible属性的值找到对应的驱动文件`drivers/pinctrl/freescale/pinctrl-imx6ul.c`
 
+下面列出`probe`函数（设备和驱动匹配成功后会执行的函数）
 
+```c
+static int imx6ul_pinctrl_probe(struct platform_device *pdev)
+{
+	const struct of_device_id *match;
+	struct imx_pinctrl_soc_info *pinctrl_info;
 
+	match = of_match_device(imx6ul_pinctrl_of_match, &pdev->dev);
 
+	if (!match)
+		return -ENODEV;
 
+	pinctrl_info = (struct imx_pinctrl_soc_info *) match->data;
 
+	return imx_pinctrl_probe(pdev, pinctrl_info);
+}
+```
 
+该函数是`I.MX6ULL`这个SOC的PIN配置入口函数。以此为入口的函数调用路径：
 
+![image-20241220235448477](assets/image-20241220235448477.png)
 
+<font color=blue>`imx_pinctrl_parse_groups`函数：</font>
 
+该函数负责获取设备树中关于PIN的配置信息，也就是前面分析的6个u32类型的值。
 
+```c
+static int imx_pinctrl_parse_groups(struct device_node *np,
+							struct imx_pin_group *grp,
+							struct imx_pinctrl_soc_info *info,
+							u32 index)
+{
+	int size, pin_size;
+	const __be32 *list;
+	int i;
+	u32 config;
+	......
+	
+	for (i = 0; i < grp->npins; i++) {
+		u32 mux_reg = be32_to_cpu(*list++);
+		u32 conf_reg;
+		unsigned int pin_id;
+		struct imx_pin_reg *pin_reg;
+		struct imx_pin *pin = &grp->pins[i];
+		
+		......
+		
+		pin_id = (mux_reg != -1) ? mux_reg / 4 : conf_reg / 4;
+		pin_reg = &info->pin_regs[pin_id];
+		pin->pin = pin_id;
+		grp->pin_ids[i] = pin_id;
+		pin_reg->mux_reg = mux_reg;
+		pin_reg->conf_reg = conf_reg;
+		pin->input_reg = be32_to_cpu(*list++);
+		pin->mux_mode = be32_to_cpu(*list++);
+		pin->input_val = be32_to_cpu(*list++);
+		
+		/* SION bit is in mux register */
+		config = be32_to_cpu(*list++);
+		if (config & IMX_PAD_SION)
+		pin->mux_mode |= IOMUXC_CONFIG_SION;
+		pin->config = config & ~IMX_PAD_SION;
+		......
+	}
+	
+	return 0;
+} 
+```
 
+设备树中的 mux_reg 和 conf_reg 值会保存在 info 参数中，input_reg、 mux_mode、input_val 和 config 值会保存在 grp 参数中。
 
+<font color=blue>`pinctrl_register`函数</font>
 
+```c
+struct pinctrl_dev *pinctrl_register(struct pinctrl_desc *pctldesc,
+ 		struct device *dev,
+		void *driver_data)
+```
 
+pctldesc参数是要注册的PIN控制器，用于配置SOC的PIN复用功能和电气特性。
 
+```c
+struct pinctrl_desc {
+	const char *name;
+	struct pinctrl_pin_desc const *pins;
+	unsigned int npins;
+	const struct pinctrl_ops *pctlops;
+	const struct pinmux_ops *pmxops;
+	const struct pinconf_ops *confops;
+	struct module *owner;
+	#ifdef CONFIG_GENERIC_PINCONF
+	unsigned int num_custom_params;
+	const struct pinconf_generic_params *custom_params;
+	const struct pin_config_item *custom_conf_items;
+	#endif
+};
+```
 
+三个`_ops`结构体指针非常重要，因为这三个结构体就是 PIN 控制器的工具，这三个结构体里面包含了很多操作函数，通过这些操作函数就可以完成对某一个PIN 的配置。
 
+`pinctrl_desc`结构体由半导体厂商提供。
 
+该结构体在`imx_pinctrl_probe`函数中的使用：
+
+```c
+int imx_pinctrl_probe(struct platform_device *pdev,
+struct imx_pinctrl_soc_info *info)
+{
+	struct device_node *dev_np = pdev->dev.of_node;
+	struct device_node *np;
+	struct imx_pinctrl *ipctl;
+	struct resource *res;
+	struct pinctrl_desc *imx_pinctrl_desc;
+	......
+	imx_pinctrl_desc = devm_kzalloc(&pdev->dev,
+	sizeof(*imx_pinctrl_desc),
+	GFP_KERNEL);
+	if (!imx_pinctrl_desc)
+		return -ENOMEM;
+	......
+	
+	imx_pinctrl_desc->name = dev_name(&pdev->dev);
+	imx_pinctrl_desc->pins = info->pins;
+	imx_pinctrl_desc->npins = info->npins;
+	imx_pinctrl_desc->pctlops = &imx_pctrl_ops;
+	imx_pinctrl_desc->pmxops = &imx_pmx_ops;
+	imx_pinctrl_desc->confops = &imx_pinconf_ops;
+	imx_pinctrl_desc->owner = THIS_MODULE;
+	......
+	ipctl->pctl = pinctrl_register(imx_pinctrl_desc, &pdev->dev,
+	ipctl);
+	......
+}
+```
+
+调用函数`pinctrl_register`向Linux内核注册`imx_pinctrl_desc`，注册以后Linux内核就有了对`I.MX6ULL`的PIN进行配置的工具。
+
+`imx_pctrl_ops`、`imx_pmx_ops` 和 `imx_pinconf_ops` 这三个结构体定义如下
+
+```c
+static const struct pinctrl_ops imx_pctrl_ops = {
+	.get_groups_count = imx_get_groups_count,
+	.get_group_name = imx_get_group_name,
+	.get_group_pins = imx_get_group_pins,
+	.pin_dbg_show = imx_pin_dbg_show,
+	.dt_node_to_map = imx_dt_node_to_map,
+	.dt_free_map = imx_dt_free_map,
+	
+};
+......
+static const struct pinmux_ops imx_pmx_ops = {
+	.get_functions_count = imx_pmx_get_funcs_count,
+	.get_function_name = imx_pmx_get_func_name,
+	.get_function_groups = imx_pmx_get_groups,
+	.set_mux = imx_pmx_set,
+	.gpio_request_enable = imx_pmx_gpio_request_enable,
+	.gpio_set_direction = imx_pmx_gpio_set_direction,
+};
+......
+static const struct pinconf_ops imx_pinconf_ops = {
+	.pin_config_get = imx_pinconf_get,
+	.pin_config_set = imx_pinconf_set,
+	.pin_config_dbg_show = imx_pinconf_dbg_show,
+	.pin_config_group_dbg_show = imx_pinconf_group_dbg_show,
+};
+```
+
+这三个结构体下的所有函数就是`I.MX6ULL`的PIN配置函数。
+
+#### 45.1.2 设备树中添加pinctrl节点模板
+
+示例：在设备树中添加某个外设的PIN信息。
+
+关于`I.MX`系列SOC的pinctrl设备树绑定信息可用参考文档`Documentation/devicetree/bindings/pinctrl/fsl,imx-pinctrl.txt`
+
+虚拟一个名为“test”的设 备，test 使用了 `GPIO1_IO00` 这个 PIN 的 GPIO 功能，pinctrl 节点添加过程如下：
+
+打开 `imx6ull-alientek-emmc.dts`，在 iomuxc 节点中的`imx6ul-evk`子节点下添加`pinctrl_test`节点：
+
+步骤：
+
+1. 添加`pinctrl_test`节点
+2. 添加`fsl,pins`属性
+3. 在`fsl.pins`属性中添加PIN配置信息
+
+```c
+pinctrl_test: testgrp {
+	fsl,pins = <
+		MX6UL_PAD_GPIO1_IO00__GPIO1_IO00 config /*config 是具体设置值*/
+	>;
+};
+```
+
+### 45.2 GPIO子系统
+
+如果pinctrl子系统将一个PIN复用为GPIO的话，那么接下来就要用到gpio子系统了。
+
+gpio 子系统: 
+
+* 用于初始化 GPIO 并且提供相应的 API 函数
+* gpio 子系统的主要目的就是方便驱动开发者使用 gpio，驱动开发者在设备树中添加 gpio 相关信息，然后就可以在驱动程序中使用 gpio 子系统提供的 API函数来操作 GPIO
+
+#### 45.2.1 `I.MX6ULL`的gpio子系统驱动
+
+##### 1. 设备树中的gpio信息
+
+上一小节已经使用pinctrl子系统把`UART_RST_B`这个PIN复用为`GPIO_IO19`，并且设置了电气属性。
+
+那么SD卡驱动怎么知道CD引脚（SD卡插入检测引脚）连接的`GPIO_IO19`呢？这个需要设备树来告诉驱动。
+
+SD 卡连接在 `I.MX6ULL` 的 usdhc1 接口上，在 `imx6ull-alientek-emmc.dts` 中找到名为“usdhc1”的节点，这个节点就是SD卡设备节点，如下所示：
+
+```c
+						示例代码 45.2.2.2 设备树中 SD 卡节点
+&usdhc1 {
+	pinctrl-names = "default", "state_100mhz", "state_200mhz";
+	pinctrl-0 = <&pinctrl_usdhc1>;
+	pinctrl-1 = <&pinctrl_usdhc1_100mhz>;
+	pinctrl-2 = <&pinctrl_usdhc1_200mhz>;
+	/* pinctrl-3 = <&pinctrl_hog_1>; */
+	cd-gpios = <&gpio1 19 GPIO_ACTIVE_LOW>;
+	keep-power-in-suspend;
+	enable-sdio-wakeup;
+	vmmc-supply = <&reg_sd1_vmmc>;
+	status = "okay";
+};
+```
+
+* usbhc1节点作为SD卡设备总结点，需要描述SD卡所有的信息，因为驱动需要使用。
+* `/* pinctrl-3 = <&pinctrl_hog_1>; */`
+  * 该行是作者添加的，本行描述SD卡的CD引脚pinctrl信息所在的子节点。
+  * 本行被注释掉了，说明我们没有在这边描述CD引脚的pinctrl信息，因为我们已经在`iomuxc`节点下引用了`pinctrl_hog_1`这个节点，所以 Linux 内核中的 iomuxc 驱动就会自动初始化 pinctrl_hog_1 节点下的所有 PIN。
+  * 属性`cd-gpios`：描述了SD卡的CD引脚使用的哪个IO。该属性值一共有3个：
+    * `&gpio1`：表示CD引脚所使用的IO属于GPIO1组
+    * `19`：表示GPIO1组的第19号IO
+    * `GPIO_ACTIVE_LOW`：表示低电平有效
+
+根据上面这些信息，SD 卡驱动程序就可以使用 `GPIO1_IO19` 来检测 SD 卡的 CD 信号了。
+
+打开`imx6ull.dtsi`，找到里面的内容：
+
+```c
+gpio1: gpio@0209c000 {
+	compatible = "fsl,imx6ul-gpio", "fsl,imx35-gpio";
+	reg = <0x0209c000 0x4000>;
+	interrupts = <GIC_SPI 66 IRQ_TYPE_LEVEL_HIGH>,
+	<GIC_SPI 67 IRQ_TYPE_LEVEL_HIGH>;
+	gpio-controller;
+	#gpio-cells = <2>;
+	interrupt-controller;
+	#interrupt-cells = <2>;
+};
+```
+
+* gpio1节点信息描述了GPIO1控制器的所有信息，重点就是GPIO1外设寄存器基地址以及兼容属性。关于I.MX系列SOC的GPIO控制器绑定信息请查看文档`Documentation/devicetree/bindings/gpio/fsl-imx-gpio.txt`。
+
+* reg属性：
+
+  reg 属性设置了GPIO1控制器的寄存器基地址为`0X0209C000`。
+
+  打开参考手册可用找到对应的寄存器地址表：
+
+  ![image-20241221183021195](assets/image-20241221183021195.png)
+
+* `gpio-controller`表示 gpio1 节点是个 GPIO 控制器
+
+* `#gpio-cells`属性和`#address-cells`类似，`#gpio-cells`应该为 2，表示一共有两个cell：
+
+  * 第一个cell为GPIO编号，比如`&gpio1 3`就表示`GPIO1_IO03`。
+  * 第二个cell表示GPIO极性，如果为`0(GPIO_ACTIVE_HIGH)`的话表示高电平有效，如果为`1(GPIO_ACTIVE_LOW)`的话表示低电平有效。
+
+##### 2. GPIO驱动程序简介
+
+通过gpio1节点的compatible属性找到对应GPIO的驱动文件`drivers/gpio/gpio-mxc.c`
+
+重点查看`mxc_gpio_probe`这个函数
+
+```c
+				示例代码 45.2.2.5 mxc_gpio_probe 函数
+static int mxc_gpio_probe(struct platform_device *pdev)
+{
+	struct device_node *np = pdev->dev.of_node;
+	struct mxc_gpio_port *port;
+	struct resource *iores;
+	int irq_base;
+	int err;
+
+	mxc_gpio_get_hw(pdev);
+
+	port = devm_kzalloc(&pdev->dev, sizeof(*port), GFP_KERNEL);
+	if (!port)
+		return -ENOMEM;
+
+	iores = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	port->base = devm_ioremap_resource(&pdev->dev, iores);
+	if (IS_ERR(port->base))
+	return PTR_ERR(port->base);
+
+	port->irq_high = platform_get_irq(pdev, 1);
+	port->irq = platform_get_irq(pdev, 0);
+	if (port->irq < 0)
+		return port->irq;
+
+	/* disable the interrupt and clear the status */
+	writel(0, port->base + GPIO_IMR);
+	writel(~0, port->base + GPIO_ISR);
+
+	if (mxc_gpio_hwtype == IMX21_GPIO) {
+		/*
+		* Setup one handler for all GPIO interrupts. Actually
+		* setting the handler is needed only once, but doing it for
+		* every port is more robust and easier.
+		*/
+		irq_set_chained_handler(port->irq, mx2_gpio_irq_handler);
+	} else {
+		/* setup one handler for each entry */
+		irq_set_chained_handler(port->irq, mx3_gpio_irq_handler);
+		irq_set_handler_data(port->irq, port);
+		if (port->irq_high > 0) {
+			/* setup handler for GPIO 16 to 31 */
+			irq_set_chained_handler(port->irq_high,
+			mx3_gpio_irq_handler);
+			irq_set_handler_data(port->irq_high, port);
+		}
+	}
+
+	err = bgpio_init(&port->bgc, &pdev->dev, 4,
+	port->base + GPIO_PSR,
+	port->base + GPIO_DR, NULL,
+	port->base + GPIO_GDIR, NULL, 0);
+	if (err)
+	goto out_bgio;
+
+	port->bgc.gc.to_irq = mxc_gpio_to_irq;
+	port->bgc.gc.base = (pdev->id < 0) ? of_alias_get_id(np, "gpio")
+	* 32 : pdev->id * 32;
+
+	err = gpiochip_add(&port->bgc.gc);
+	if (err)
+	goto out_bgpio_remove;
+
+	irq_base = irq_alloc_descs(-1, 0, 32, numa_node_id());
+	if (irq_base < 0) {
+		err = irq_base;
+		goto out_gpiochip_remove;
+	}
+
+	port->domain = irq_domain_add_legacy(np, 32, irq_base, 0,
+	&irq_domain_simple_ops, NULL);
+	if (!port->domain) {
+		err = -ENODEV;
+		goto out_irqdesc_free;
+	}
+
+	/* gpio-mxc can be a generic irq chip */
+	mxc_gpio_init_gc(port, irq_base);
+
+	list_add_tail(&port->node, &mxc_gpio_ports);
+
+	return 0;
+	......
+}
+```
+
+* `struct mxc_gpio_port *port;`
+
+  * 结构体类型`mxc_gpio_port`就是对`I.MX6ULL` GPIO的抽象
+
+    ```c
+    			示例代码 45.2.2.6 mxc_gpio_port 结构体
+    struct mxc_gpio_port {
+    	struct list_head node;
+    	void __iomem *base;
+    	int irq;
+    	int irq_high;
+    	struct irq_domain *domain;
+    	struct bgpio_chip bgc;
+    	u32 both_edges;
+    };
+    ```
+
+* `mxc_gpio_get_hw(pdev);`函数获取gpio的硬件相关数据，其实就是gpio的寄存器组。
+
+  ```c
+  			示例代码 45.2.2.7 mxc_gpio_get_hw 函数
+  static void mxc_gpio_get_hw(struct platform_device *pdev)
+  {
+  	const struct of_device_id *of_id =
+  	of_match_device(mxc_gpio_dt_ids, &pdev->dev);
+  	enum mxc_gpio_hwtype hwtype;
+  	......
+  	if (hwtype == IMX35_GPIO)
+  		mxc_gpio_hwdata = &imx35_gpio_hwdata;
+  	else if (hwtype == IMX31_GPIO)
+  		mxc_gpio_hwdata = &imx31_gpio_hwdata;
+  	else
+  		mxc_gpio_hwdata = &imx1_imx21_gpio_hwdata;
+  
+  	mxc_gpio_hwtype = hwtype;
+  }
+  ```
+
+  `imx35_gpio_hwdata`结构体变量
+
+  ```c
+  static struct mxc_gpio_hwdata imx35_gpio_hwdata = {
+  	.dr_reg = 0x00,
+  	.gdir_reg = 0x04,
+  	.psr_reg = 0x08,
+  	.icr1_reg = 0x0c,
+  	.icr2_reg = 0x10,
+  	.imr_reg = 0x14,
+  	.isr_reg = 0x18,
+  	.edge_sel_reg = 0x1c,
+  	.low_level = 0x00,
+  	.high_level = 0x01,
+  	.rise_edge = 0x02,
+  	.fall_edge = 0x03,
+  };
+  ```
+
+  `mxc_gpio_hwdata`是个全局变量，配合GPIO1控制器里面的寄存器基地址，就可用访问相应的寄存器了。
+
+* `bgc_init`函数第一个参数为bgc，是`bgpio_chip`结构体指针。该结构体有个类型为`gpio_chip`的gc成员变量，`gpio_chip`是抽象出来的GPIO控制器，该结构体如下：
+
+  ```c
+  struct gpio_chip {
+  	const char *label;
+  	struct device *dev;
+  	struct module *owner;
+  	struct list_head list;
+  
+  	int (*request)(struct gpio_chip *chip,
+  	unsigned offset);
+  	void (*free)(struct gpio_chip *chip,
+  	unsigned offset);
+  	int (*get_direction)(struct gpio_chip *chip,
+  	unsigned offset);
+  	int (*direction_input)(struct gpio_chip *chip,
+  	unsigned offset);
+  	int (*direction_output)(struct gpio_chip *chip,
+  	unsigned offset, int value);
+  	int (*get)(struct gpio_chip *chip,
+  	unsigned offset);
+  	void (*set)(struct gpio_chip *chip,
+  	unsigned offset, int value);
+  	......
+  };
+  ```
+
+  `bgpio_init` 函数主要任务就是初始化`bgc->gc`。`bgpio_init`里面有三个setup函数：`bgpio_setup_io`、`bgpio_setup_accessors`、`bgpio_setup_direction`，这三个函数就是用来初始化`bgc->gc`的各种有关gpio的操作，比如输入输出等。`GPIO_PSR`、`GPIO_DR` 和 `GPIO_GDIR` 都是 `I.MX6ULL` 的GPIO寄存器。这些寄存器地址会赋值给bgc参数的`reg_dat`、`reg_set`、`reg_clr`和`reg_dir`这些成员变量。
+
+  至此，bgc既有了对GPIO的操作函数，又有了`I.MX6ULL`有关GPIO的寄存器，那么只要得到bgc就可以对 `I.MX6ULL`的GPIO进行操作。
+
+* 函数`gpiochip_add`向Linux内核注册`gpio_chip`， 也就是`port->bgc.gc`。注册完成以后我们就可以在驱动中使用`gpiolib`提供的各个API函数。
+
+#### 45.2.2 gpio子系统API函数
+
+对于驱动开发人员，设置好设备树以后就可以使用gpio子系统提供的API函数来操作指定的GPIO。
+
+1、`gpio_request` 函数
+
+2、`gpio_free` 函数
+
+3、`gpio_direction_input` 函数
+
+4、`gpio_direction_output` 函数
+
+5、`gpio_get_value` 函数
+
+6、`gpio_set_value` 函数
+
+#### 45.2.3 设备树中添加gpio节点模板
+
+继续完成上一节的test设备，上一节我们已经讲解了如何创建test设备的pinctrl节点。
+
+```c
+pinctrl_test: testgrp {
+    fsl,pins = <
+    MX6UL_PAD_GPIO1_IO00__GPIO1_IO00 config /*config 是具体设置值*/
+    >;
+};
+```
+
+本节来学习如何创建test设备的GPIO节点。
+
+在test节点中添加GPIO属性信息，表面test所使用的GPIO是哪个引脚：
+
+```c
+test {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_test>;
+	gpio = <&gpio1 0 GPIO_ACTIVE_LOW>;
+};
+```
+
+#### 45.2.4 与gpio相关的OF函数
+
+前面我们定义了一个名为“gpio”的属性，gpio 属性描述了 test 这个设备所使用的 GPIO。在驱动程序中需要读取 gpio 属性内容，Linux 内核提供了几个与 GPIO 有关的 OF 函数，常用的几个 OF 函数如下所示：
+
+1、`of_gpio_named_count` 函数
+
+2、`of_gpio_count` 函数
+
+3、`of_get_named_gpio` 函数
