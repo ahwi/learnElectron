@@ -1105,3 +1105,473 @@ test {
 2、`of_gpio_count` 函数
 
 3、`of_get_named_gpio` 函数
+
+## 第54章 platform 设备驱动实验
+
+linux系统考虑到驱动的可重用性，提出了驱动的分离与分层的软件设计思路，在这个思路下诞生了platform设备驱动（平台设备驱动）。
+
+本章学习：
+
+* Linux下的驱动分离与分层
+* platform框架下的设备驱动如何编写
+
+### 54.1 linux 驱动的分隔与分离
+
+#### 54.1.1 驱动的分离与分隔
+
+假如现在有三个平台A、B和C，这三个平台（平台指SOC）上都有MPU6050这个I2C接口的六轴传感器，按照平常写裸机I2C驱动的思路，每个平台都有一个MPU6050的驱动，因此编写出来最简单的驱动框架如下所示：
+
+<img src="assets/image-20241228001344568.png" alt="image-20241228001344568" style="zoom: 50%;" />
+
+如上图所示，每种平台下都有一个主机驱动和设备驱动，主机驱动是必须要的，毕竟不同的平台其I2C控制器不同，但是右侧的设备驱动就没必要每个平台都写一个，因为不管对于哪个SOC来说，MPU6050都是一样通过I2C接口来读写，只需要一个MPU6050的驱动程序即可。
+
+如果再来几个I2C设备，比如AT24C2、FT5206（电容触摸屏）等，如果按照上图的写法，那么设备端的驱动要重复写好几次，显然这种做法是不推荐的。
+
+最好的做法是：每个平台的I2C控制器都提供一个统一的接口（也叫做主机驱动），每个设备的话也只提供一个驱动程序（设备驱动），每个设备通过统一的I2C接口驱动来访问，这样就可以大大简化驱动文件，改进后的设备驱动框架如下图所示：
+
+<img src="assets/image-20241228003402246.png" alt="image-20241228003402246" style="zoom: 50%;" />
+
+实际的I2C驱动设备肯定有很多种，不止MPU6050这一个，那么实际的驱动框架如下图所示：
+
+<img src="assets/image-20241228003552143.png" alt="image-20241228003552143" style="zoom: 50%;" />
+
+这个就是驱动的分隔，也就是将主机驱动和设备驱动分隔开来，比如I2C、SPI等等都会采用驱动分隔的方式来简化驱动的开发。
+
+在实际的开发中：
+
+* 一般I2C主机驱动已经由半导体厂家编写好了
+* 设备驱动一般由设备器件的厂家编写好了
+* 我们只需要提供设备信息即可，比如I2C设备的话，提供设备连接到哪个I2C接口上，I2C的速度是多少等等。
+
+相当于将设备信息从设备驱动中剥离开来，驱动使用标准方法去获取到设备信息（比如从设备树中获取到设备信息），然后根据获取到的设备信息来初始化设备。这样就相当于驱动只负责驱动，设备只负责设备，想办法将两者进行匹配即可。
+
+这个就是Linux中的总线（bus）、驱动（driver）和设备（device）模型，也就是常说的驱动分离。总线就是驱动和设备信息的月老，负责给两者牵线搭桥，如下图所示：
+
+<img src="assets/image-20241228200807053.png" alt="image-20241228200807053" style="zoom:50%;" />
+
+当我们向系统注册一个驱动的时候，总线会在右侧的设备中查找有没有与之匹配的设备，如果有的话就将两者联系起来。同样的，当向总线注册一个设备的时候，总线会在左侧的驱动中查找有没有与之匹配的设备，有的话也联系起来。
+
+#### 54.1.2 驱动的分层
+
+Linux下的驱动往往也是分层的，目的是为了在不同的层处理不同的内容。
+
+以input（输入子系统）为例，简单介绍下驱动的分层：
+
+* input子系统负责管理所有跟输入有关的驱动，包括键盘、鼠标、触摸等，最底层的就是设备原始驱动，负责获取输入设备的原始值，获取到的输入事件上报给input核心层。
+* input核心层会处理各种IO模型，并提供`file_operators`操作集合。
+* 我们在编写输入设备驱动的时候只需要处理好输入事件的上报即可，至于如何这些上报的输入事件是上层考虑的事情，我们不需要管。
+
+可以看出借助分层模型可以极大的简化驱动的编写。
+
+### 54.2 platform 平台驱动模型简介
+
+为了设备驱动的分离，引出了总线、驱动和设备模型，像I2C、SPI、USB有总线的概念，但是有些外设是没有总线这个概念的，但是又要使用总线、驱动和设备模型该怎么办？为了解决该问题，Linux提出了platform这个虚拟总线，相应的就有`platform_driver`和`platform_device`。
+
+#### 54.2.1 platform 总线
+
+Linux系统内核使用`bus_type`结构体表示总线，该结构体定义在`include/linux/device.h`中
+
+```c
+			示例代码 54.2.1.1 bus_type 结构体代码段
+struct bus_type {
+    const char *name; /* 总线名字 */
+    const char *dev_name; 
+    struct device *dev_root;
+    struct device_attribute *dev_attrs;
+    const struct attribute_group **bus_groups; /* 总线属性 */
+    const struct attribute_group **dev_groups; /* 设备属性 */
+    const struct attribute_group **drv_groups; /* 驱动属性 */
+
+    int (*match)(struct device *dev, struct device_driver *drv);
+    int (*uevent)(struct device *dev, struct kobj_uevent_env *env);
+    int (*probe)(struct device *dev);
+    int (*remove)(struct device *dev);
+    void (*shutdown)(struct device *dev);
+
+    int (*online)(struct device *dev);
+    int (*offline)(struct device *dev);
+    int (*suspend)(struct device *dev, pm_message_t state);
+    int (*resume)(struct device *dev);
+    const struct dev_pm_ops *pm;
+    const struct iommu_ops *iommu_ops;
+    struct subsys_private *p;
+    struct lock_class_key lock_key;
+};
+```
+
+match函数用来完成设备和驱动之间的匹配，每一条总线都必须实现此函数。
+
+platform总线是`bus_type`的一个具体实例，定义在`drivers/base/platform.c`中
+
+```c
+        示例代码 54.2.1.2 platform 总线实例
+struct bus_type platform_bus_type = {
+    .name = "platform",
+    .dev_groups = platform_dev_groups,
+    .match = platform_match,
+    .uevent = platform_uevent,
+    .pm = &platform_dev_pm_ops,
+};
+```
+
+`platform_bus_type` 就是 platform 平台总线
+`platform_match` 就是匹配函数，定义在文件 `drivers/base/platform.c`
+
+```c
+    	示例代码 54.2.1.3 platform_match 匹配函数
+static int platform_match(struct device *dev,
+  struct device_driver *drv)
+{
+    struct platform_device *pdev = to_platform_device(dev);
+    struct platform_driver *pdrv = to_platform_driver(drv);
+
+    /*When driver_override is set,only bind to the matching driver*/
+    if (pdev->driver_override)
+    return !strcmp(pdev->driver_override, drv->name);
+
+    /* Attempt an OF style match first */
+    if (of_driver_match_device(dev, drv))
+    return 1;
+
+    /* Then try ACPI style match */
+    if (acpi_driver_match_device(dev, drv))
+    return 1;
+    /* Then try to match against the id table */
+    if (pdrv->id_table)
+    return platform_match_id(pdrv->id_table, pdev) != NULL;
+
+    /* fall-back to driver name match */
+    return (strcmp(pdev->name, drv->name) == 0);
+}
+```
+
+#### 54.2.2 platform 驱动
+
+##### 1. `platform_driver`结构体
+
+`platform_driver` 结构体表示 platform 驱动 `include/linux/platform_device.h`
+
+```c
+		示例代码 54.2.2.1 platform_driver 结构体
+struct platform_driver {
+	int (*probe)(struct platform_device *);
+	int (*remove)(struct platform_device *);
+	void (*shutdown)(struct platform_device *);
+	int (*suspend)(struct platform_device *, pm_message_t state);
+	int (*resume)(struct platform_device *);
+	struct device_driver driver;
+	const struct platform_device_id *id_table;
+	bool prevent_deferred_probe;
+ };
+```
+
+* `probe`函数：当驱动与设备匹配成功以后`probe`函数就会执行，一般驱动的提供者会编写，如果自己要实现一个全新的驱动，那么该函数要自己实现。
+* `driver`成员：为`device_driver`结构体变量，`device_driver`相当于基类，提供了最基础的驱动框架，`platform_deriver`继承了这个基类，然后在次基础上又添加了一些特有的成员变量。
+* `id_table`表：总线中match函数匹配驱动和设备的时候采用的第三种方法。
+
+##### 2. `deivce_driver`结构体
+
+`device_driver`结构体定义在`include/linux/device.h`中：
+
+```c
+	示例代码 54.2.2.3 device_driver 结构体
+struct device_driver {
+	const char *name;
+	struct bus_type *bus;
+
+	struct module *owner;
+	const char *mod_name; /* used for built-in modules */
+
+	bool suppress_bind_attrs; /* disables bind/unbind via sysfs */
+
+	const struct of_device_id *of_match_table;
+	const struct acpi_device_id *acpi_match_table;
+
+	int (*probe) (struct device *dev);
+	int (*remove) (struct device *dev);
+	void (*shutdown) (struct device *dev);
+	int (*suspend) (struct device *dev, pm_message_t state);
+	int (*resume) (struct device *dev);
+	const struct attribute_group **groups;
+
+	const struct dev_pm_ops *pm;
+
+	struct driver_private *p;
+};
+```
+
+* `of_match_table`：就是采用设备树的时候驱动使用的匹配表，是个数组，每个匹配项都为`of_device_id`结构体类型，定义在`include/linux/mod_devicetable.h`中
+
+  ```c
+  示例代码 54.2.2.4 of_device_id 结构体
+  struct of_device_id {
+  	char name[32];
+  	char type[32];
+  	char compatible[128];
+  	const void *data;
+  };
+  ```
+
+  *  compatible 非常重要，因为对于设备树而言，就是通过设备节点的 compatible 属性值和`of_match_table` 中每个项目的compatible成员变量进行比较，如果有相等的就表示设备和此驱动匹配成功。
+
+##### 3. platform 驱动的编写流程
+
+在编写platform驱动的时候：
+
+* 首先定义一个`platform_driver`结构体变量，然后实现结构体中的各个成员变量，重点是实现匹配方法以及probe函数。
+* 当驱动和设备匹配成功以后`probe`函数就会执行，具体的驱动程序在probe函数里面编写，比如字符设备驱动等等。
+* 定义好并初始化`platform_driver`结构体变量以后，需要在驱动入口函数里面调用`platform_driver_register`函数向Linux内核注册一个platform驱动。
+* 驱动卸载函数使用`platform_driver_unregister`
+
+```c
+int platform_driver_register (struct platform_driver *driver)
+```
+
+* driver：要注册的 platform 驱动。 
+* 返回值：负数，失败；0，成功。
+
+```c
+void platform_driver_unregister(struct platform_driver *drv)
+```
+
+* drv：要卸载的 platform 驱动。
+*  返回值：无。
+
+##### 4. platform 驱动框架
+
+```c
+		示例代码 54.2.2.5 platform 驱动框架
+/* 设备结构体 */
+struct xxx_dev{
+	struct cdev cdev;
+	/* 设备结构体其他具体内容 */
+};
+
+struct xxx_dev xxxdev; /* 定义个设备结构体变量 */
+
+static int xxx_open(struct inode *inode, struct file *filp)
+{
+	/* 函数具体内容 */
+	return 0;
+}
+
+static ssize_t xxx_write(struct file *filp, const char __user *buf,
+	e_t cnt, loff_t *offt)
+{
+	/* 函数具体内容 */
+	return 0;
+}
+
+/*
+* 字符设备驱动操作集
+*/
+static struct file_operations xxx_fops = {
+	.owner = THIS_MODULE,
+	.open = xxx_open,
+	.write = xxx_write,
+};
+
+/*
+* platform 驱动的 probe 函数
+* 驱动与设备匹配成功以后此函数就会执行
+*/
+static int xxx_probe(struct platform_device *dev)
+{
+	......
+	cdev_init(&xxxdev.cdev, &xxx_fops); /* 注册字符设备驱动 */
+	/* 函数具体内容 */
+	return 0;
+}
+
+static int xxx_remove(struct platform_device *dev)
+{
+	......
+	cdev_del(&xxxdev.cdev);/* 删除 cdev */
+	/* 函数具体内容 */
+	return 0;
+}
+
+/* 匹配列表 */
+static const struct of_device_id xxx_of_match[] = {
+	{ .compatible = "xxx-gpio" },
+	{ /* Sentinel */ }
+};
+
+/*
+* platform 平台驱动结构体
+*/
+static struct platform_driver xxx_driver = {
+	.driver = {
+	.name = "xxx",
+	.of_match_table = xxx_of_match,
+	},
+	.probe = xxx_probe,
+	.remove = xxx_remove,
+};
+
+/* 驱动模块加载 */
+static int __init xxxdriver_init(void)
+{
+	return platform_driver_register(&xxx_driver);
+}
+
+/* 驱动模块卸载 */
+static void __exit xxxdriver_exit(void)
+{
+	platform_driver_unregister(&xxx_driver);
+}
+
+module_init(xxxdriver_init);
+module_exit(xxxdriver_exit);
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("zuozhongkai");
+```
+
+总体来说，platform 驱动还是传统的字符设备驱动、块设备驱动或网络设备驱动，只是套上了一张“platform”的皮，目的是为了使用总线、驱动和设备这个驱动模型来实现驱动的分离与分层。
+
+#### 54.2.3 platform 设备
+
+##### 1. `platform_device`结构体
+
+`platform_device` 这个结构体表示 platform 设备，这里要注意的是，如果内核支持设备树的话就不需要再使用`platform_device`来描述设备，因为改用设备树来描述了。当然了，如果一定要用`platform_device`来描述的话也是可以的。
+
+`platform_device`结构体定义在`include/linux/platform_device.h`中
+
+```c
+	示例代码 54.2.3.1 platform_device 结构体代码段
+struct platform_device {
+	const char *name;
+	int id;
+	bool id_auto;
+	struct device dev;
+	u32 num_resources;
+	struct resource *resource;
+
+	const struct platform_device_id *id_entry;
+	char *driver_override; /* Driver name to force a match */
+
+	/* MFD cell pointer */
+	struct mfd_cell *mfd_cell;
+
+	/* arch specific additions */
+	struct pdev_archdata archdata;
+};
+```
+
+* name：表示设备名字，要和所使用的 platform 驱动的 name 字段相同，否则的话设备就无法匹配到对应的驱动。比如对应的 platform 驱动的 name 字段为“xxx-gpio”，那么此 name 字段也要设置为“xxx-gpio”。
+
+* `num_resources` 表示资源数量，一般为resource资源的大小。
+
+* resource 表示资源，也就是设备信息，比如外设寄存器等。Linux 内核使用 resource 结构体表示资源，resource 结构体内容如下：
+
+  ```c
+  	示例代码 54.2.3.2 resource 结构体代码段
+  struct resource {
+  	resource_size_t start;
+  	resource_size_t end;
+  	const char *name;
+  	unsigned long flags;
+  	struct resource *parent, *sibling, *child;
+  };
+  ```
+
+  * start 和 end 分别表示资源的起始和终止信息，对于内存类的资源，就表示内存起始和终止地址
+
+  * name 表示资源名字
+
+  * flags 表示资源类型
+
+    可选的资源类型都定义在`include/linux/ioport.h`里面
+
+    ```c
+    		示例代码 54.2.3.3 资源类型
+    #define IORESOURCE_BITS 0x000000ff /* Bus-specific bits */
+    
+    #define IORESOURCE_TYPE_BITS 0x00001f00 /* Resource type */
+    #define IORESOURCE_IO 0x00000100 /* PCI/ISA I/O ports */
+    #define IORESOURCE_MEM 0x00000200
+    #define IORESOURCE_REG 0x00000300 /* Register offsets */
+    #define IORESOURCE_IRQ 0x00000400
+    #define IORESOURCE_DMA 0x00000800
+    #define IORESOURCE_BUS 0x00001000
+    ......
+    /* PCI control bits. Shares IORESOURCE_BITS with above PCI ROM. */
+    #define IORESOURCE_PCI_FIXED (1<<4) /* Do not move resource */
+    ```
+
+##### 2. platform 设备的编写流程
+
+在以前不支持设备树的Linux版本中，用户需要编写`platform_device`变量来描述设备信息， 然后使用 `platform_device_register` 函数将设备信息注册到 Linux 内核中，使用`platform_device_unregister`来注销设备
+
+```c
+int platform_device_register(struct platform_device *pdev)
+```
+
+* pdev：要注册的 platform 设备。
+
+* 返回值：负数，失败；0，成功。
+
+```c
+void platform_device_unregister(struct platform_device *pdev)
+```
+
+* pdev：要注销的 platform 设备。 
+* 返回值：无。
+
+##### 3. platform 设备框架
+
+```c
+			示例代码 54.2.3.4 platform 设备框架
+/* 寄存器地址定义*/
+#define PERIPH1_REGISTER_BASE (0X20000000) /* 外设 1 寄存器首地址 */
+#define PERIPH2_REGISTER_BASE (0X020E0068) /* 外设 2 寄存器首地址 */
+#define REGISTER_LENGTH 4
+
+/* 资源 */
+static struct resource xxx_resources[] = {
+	[0] = {
+	.start = PERIPH1_REGISTER_BASE,
+	.end = (PERIPH1_REGISTER_BASE + REGISTER_LENGTH - 1),
+	.flags = IORESOURCE_MEM,
+	},
+	[1] = {
+	.start = PERIPH2_REGISTER_BASE,
+	.end = (PERIPH2_REGISTER_BASE + REGISTER_LENGTH - 1),
+	.flags = IORESOURCE_MEM,
+	},
+};
+
+/* platform 设备结构体 */
+static struct platform_device xxxdevice = {
+	.name = "xxx-gpio",
+	.id = -1,
+	.num_resources = ARRAY_SIZE(xxx_resources),
+	.resource = xxx_resources,
+};
+
+/* 设备模块加载 */
+static int __init xxxdevice_init(void)
+{
+	return platform_device_register(&xxxdevice);
+}
+
+/* 设备模块注销 */
+static void __exit xxx_resourcesdevice_exit(void)
+{
+	platform_device_unregister(&xxxdevice);
+}
+
+module_init(xxxdevice_init);
+module_exit(xxxdevice_exit);
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("zuozhongkai");
+```
+
+示例代码 `54.2.3.4` 主要是在不支持设备树的 Linux 版本中使用的，当 Linux 内核支持了设备树以后就不需要用户手动去注册 platform 设备了。因为设备信息都放到了设备树中去描述， Linux 内核启动的时候会从设备树中读取设备信息，然后将其组织成 `platform_device` 形式。
+
+### 54.3 platform 驱动框架实验
+
+使用 platform 驱动框架来编写一个 LED 灯驱动，本章我们不使用设备树来描述设备信息，我们采用自定义 `platform_device`这种“古老”方式来编写LED的设备信息。下一章我们来编写设备树下的platform 驱动，这样我们就掌握了无设备树和有设备树这两种 platform 驱动的开发方式。
+
+本章实验我们需要编写一个驱动模块和一个设备模块，其中驱动模块是 platform 驱动程序， 设备模块是 platform 的设备信息。当这两个模块都加载成功以后就会匹配成功，然后 platform 驱动模块中的 probe 函数就会执行，probe 函数中就是传统的字符设备驱动那一套。
+
