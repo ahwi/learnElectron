@@ -1,0 +1,12 @@
+/{
+    myLed: myled {
+        compatible = "big_m,led";
+        gpio = <&gpio3 RK_PB4 GPIO_ACTIVE_HIGH>;
+        status = "okay";
+        reg = <
+            0xFDC60000 0x004C   /* GRF_GPIO3B_IOMUX_H */ 
+            0xFE760000 0x0000   /* GIPO3_SWPORT_DR_L */
+            0xFE760000 0x0008   /* GIPO3_SWPORT_DDR_L */
+        >;
+    };
+}
