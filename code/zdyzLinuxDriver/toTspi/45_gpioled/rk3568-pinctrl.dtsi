@@ -1,0 +1,6 @@
+&pinctrl {
+    pinctrl_myled: pinctrl-myled{
+        rockchip,pins = 
+            <3 RK_PB4 RK_FUNC_GPIO &pcfg_pull_none>,
+    };
+};

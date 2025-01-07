@@ -1106,6 +1106,136 @@ test {
 
 3、`of_get_named_gpio` 函数
 
+### 45.3 泰山派说明
+
+#### 1. pinctrl子系统配置
+
+pinctrl子系统的配置可以参考说明：`kernel/Documentation/devicetree/bindings/pinctrl/rockchip\,pinctrl.txt`
+
+![image-20250107110007547](正点原子-Linux驱动学习.assets/image-20250107110007547.png)
+
+![image-20250107110029256](正点原子-Linux驱动学习.assets/image-20250107110029256.png)
+
+> 引脚相关的宏定义在`kernel/include/dt-bindings/pinctrl/rockchip.h`中
+
+* `PIN_BANK`：引脚所属的组，如：`RK_GPIO3`
+
+* `PIN_BAK_IDX`：引脚的索引号，如：`RK_PB4`
+
+* `MUX`：引脚的复用功能，如：`RK_FUNC_GPIO`
+
+* `&phandle`：电器属性，如：`pcfg_pull_none`无上下拉，可在`kernel/arch/arm64/boot/dts/rockchip/.tspi-rk3566-user-v10-linux.dtb.dts.tmp`中查看
+
+  ![image-20250107111238512](正点原子-Linux驱动学习.assets/image-20250107111238512.png)
+
+#### 2. 实验流程
+
+实验内容：
+
+通过引脚`GPIO3_B4`控制led灯的亮灭
+
+1. 通过pinctrl子系统设置引脚复用为GPIO
+2. 通过gpio子系统提供gpio操作函数
+3. 在驱动中获取设备树上的gpio信息，控制led灯的亮灭
+
+使用gpio前，先检查该引脚是否已经被使用，避免冲突：
+
+* 检查pinctrl设置
+* 如果这个PIN配置为了GPIO，检查这个GPIO有没有被其他外设使用
+
+**实验流程：**
+
+<font color=blue>1. 添加pinctrl信息</font>
+
+在设备树的`&pinctrl`下追加节点`pinctrl_myled`
+
+> 文件在`kernel/arch/arm64/boot/dts/rockchip/rk3568-pinctrl.dtsi`
+
+```dtsi
+&pinctrl {
+    pinctrl_myled: pinctrl-myled{
+        rockchip,pins = 
+            <3 RK_PB4 RK_FUNC_GPIO &pcfg_pull_none>,
+    };
+};
+```
+
+<font color=blue>2. 添加gpio信息</font>
+
+>  文件在`kernel/arch/arm64/boot/dts/rockchip/tsp-rk3566-user-v10-linux.dts`
+
+```dts
+/{
+    myLed: myled {
+        compatible = "big_m,led";
+        #address-cells = <1>;
+        #size-cells = <1>;
+        pinctrl-names = "default";
+        pinctrl-0 = <&pinctrl_myled>;
+        myled-gpio = <&gpio3 RK_PB4 GPIO_ACTIVE_HIGH>;
+        status = "okay";
+    };
+}
+```
+
+<font color=blue>3. 编译设备树，并烧写到开发板</font>
+
+启动内核查看`/proc/device-tree`是否存在`myled`节点
+
+<font color=blue>4. 编写驱动</font>
+
+下面列出主要的流程：
+
+1. 获取设备节点信息、申请gpio资源并设置gpio为输出低电平
+
+    ```c
+        /* 1. 获取设备节点 */
+        dtsled.nd = of_find_node_by_path(LED_NODE_PATH);
+        if(dtsled.nd == NULL) {
+            printk("node can not found!\r\n");
+            return -EINVAL;
+        } else {
+            printk("node has been found!\r\n");
+        }
+
+        /* 获取gpio编号 */
+        gpionum = of_get_named_gpio(dtsled.nd, LED_NODE_PROPERTY_GPIO, 0);
+        if(gpionum < 0) {
+            printk("get property %s failed!\r\n", LED_NODE_PROPERTY_GPIO);
+            return -EINVAL;
+        }
+        printk("gpionum:%d\r\n", gpionum);
+
+        /* 初始化LED */
+        /* 申请GPIO */
+        if(gpio_request(gpionum, NULL)) {
+            printk("request gpio failed!\r\n");
+            return -EINVAL;
+        }
+
+        /* 设置GPIO为输出: 默认为低电平 led灯灭 */
+        if(gpio_direction_output(gpionum, 0)) {
+            printk("set gpio direction failed!\r\n");
+            return -EINVAL;
+        }
+    ```
+
+2. 通过`gpio_set_value`函数来设置gpio的输出电平
+
+   ```c
+   void led_switch(u8 sta)
+   {
+       // u32 val = 0;
+       if(sta == LEDON) {
+           gpio_set_value(gpionum, 1); //设置高电平
+       } else if(sta == LEDOFF) {
+           gpio_set_value(gpionum, 0); //设置低电平
+       }
+   }
+   ```
+
+   
+
 ## 第54章 platform 设备驱动实验
 
 linux系统考虑到驱动的可重用性，提出了驱动的分离与分层的软件设计思路，在这个思路下诞生了platform设备驱动（平台设备驱动）。

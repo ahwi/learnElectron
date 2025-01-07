@@ -1,0 +1,11 @@
+/{
+    myLed: myled {
+        compatible = "big_m,led";
+        #address-cells = <1>;
+        #size-cells = <1>;
+        pinctrl-names = "default";
+        pinctrl-0 = <&pinctrl_myled>;
+        myled-gpio = <&gpio3 RK_PB4 GPIO_ACTIVE_HIGH>;
+        status = "okay";
+    };
+}
