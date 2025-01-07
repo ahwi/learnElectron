@@ -26,7 +26,7 @@
 #define DTSLED_CNT      1           /* 设备号个数 */
 #define DTSLED_NAME     "dtsled"    /* 名字 */
 #define LEDOFF          0           /* 关灯 */
-#define LEDON           0           /* 开灯 */
+#define LEDON           1           /* 开灯 */
 
 /* 映射后的寄存器虚拟地址指针 */
 unsigned int *virt_gpio3b_iomux;
@@ -76,7 +76,7 @@ void led_switch(u8 sta)
     } else if(sta == LEDOFF) {
         // GPIO_SWPORT_DR_L：设置GPIO3B4为输出低电平(LED灭). 
         // 12位写0（设置输出低电平）;28位写1(写使能)
-        *virt_gpio3_dr |= ((0x0 << (8*1 + 4)) + (0x1 << (16 + 8*1 +4)));
+        *virt_gpio3_dr = ((0x0 << (8*1 + 4)) + (0x1 << (16 + 8*1 +4)));
     }
 }
 
@@ -276,7 +276,7 @@ static void __exit led_exit(void)
     /* 取消映射 */
     // GPIO_SWPORT_DR_L：设置GPIO3B4为输出低电平(LED灭). 
     // 12位写0（设置输出低电平）;28位写1(写使能)
-    *virt_gpio3_dr |= ((0x0 << (8*1 + 4)) + (0x1 << (16 + 8*1 +4)));
+    *virt_gpio3_dr = ((0x0 << (8*1 + 4)) + (0x1 << (16 + 8*1 +4)));
     iounmap(virt_gpio3b_iomux);
     iounmap(virt_gpio3_ddr);
     iounmap(virt_gpio3_dr);

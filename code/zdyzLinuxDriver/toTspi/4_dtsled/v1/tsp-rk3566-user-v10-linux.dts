@@ -1,7 +1,7 @@
 /{
     myLed: myled {
         compatible = "big_m,led";
-        gpio = <&gpio3 RK_PB4 GPIO_ACTIVE_HIGH>;
+        gpios = <&gpio3 RK_PB4 GPIO_ACTIVE_HIGH>;
         status = "okay";
         reg = <
             0xFDC60000 0x004C   /* GRF_GPIO3B_IOMUX_H */ 

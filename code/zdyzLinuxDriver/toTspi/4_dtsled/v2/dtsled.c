@@ -20,15 +20,16 @@
 #include <asm/io.h>
 #include <linux/fs.h>
 #include <linux/of_address.h>
+#include <linux/of_gpio.h>
 
 
 #define LED_NODE_PATH  "/myled"         /* 设备树路径 */
-#define LED_NODE_PROPERTY_GPIO "gpio"   /* gpio属性 */
+#define LED_NODE_PROPERTY_GPIO "gpios"   /* gpio属性 */
 
 #define DTSLED_CNT      1           /* 设备号个数 */
 #define DTSLED_NAME     "dtsled"    /* 名字 */
 #define LEDOFF          0           /* 关灯 */
-#define LEDON           0           /* 开灯 */
+#define LEDON           1           /* 开灯 */
 
 int gpionum = -1;
 
@@ -154,7 +155,7 @@ static int led_release(struct inode *node, struct file *filp)
 static int __init led_init(void)
 {
     int ret;
-    u32 regdata[14];
+    // u32 regdata[14];
     const char *str;
     struct property *proper;
 
@@ -190,6 +191,7 @@ static int __init led_init(void)
         printk("get property %s failed!\r\n", LED_NODE_PROPERTY_GPIO);
         return -EINVAL;
     }
+    printk("gpionum:%d\r\n", gpionum);
 
     /* 初始化LED */
     /* 申请GPIO */

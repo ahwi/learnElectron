@@ -65,7 +65,8 @@ void led_switch(u8 sta)
     } else if(sta == LEDOFF) {
         // GPIO_SWPORT_DR_L：设置GPIO3B4为输出低电平(LED灭). 
         // 12位写0（设置输出低电平）;28位写1(写使能)
-        *virt_gpio3_dr |= ((0x0 << (8*1 + 4)) + (0x1 << (16 + 8*1 +4)));
+        // *virt_gpio3_dr |= ((0x0 << (8*1 + 4)) + (0x1 << (16 + 8*1 +4)));
+        *virt_gpio3_dr = ((0x0 << (8*1 + 4)) + (0x1 << (16 + 8*1 +4)));
     }
 }
 
