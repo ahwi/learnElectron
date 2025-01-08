@@ -1705,3 +1705,350 @@ MODULE_AUTHOR("zuozhongkai");
 
 本章实验我们需要编写一个驱动模块和一个设备模块，其中驱动模块是 platform 驱动程序， 设备模块是 platform 的设备信息。当这两个模块都加载成功以后就会匹配成功，然后 platform 驱动模块中的 probe 函数就会执行，probe 函数中就是传统的字符设备驱动那一套。
 
+## 第58章 Linux INPUT子系统实验
+
+linux内核使用input子系统框架来处理输入事件。
+输入设备本质上还是字符设备，只是在此基础上套上input框架，用户只需负责上报输入事件，如按键值、坐标等信息，input核心层负责处理这些事件。
+
+### 58.1 input 子系统
+
+#### 58.1.1 input子系统简介
+
+input子系统：用于管理输入的子系统，和pinctrl、gpio子系统一样，都是linux内核针对某一类设备而创建的框架。
+input子系统分为input驱动层、input核心层、input事件处理层，最终给用户框架提供可访问的设备节点
+
+![image-20250108114623475](正点原子-Linux驱动学习.assets/image-20250108114623475.png)
+
+* 最左边就是最底层的具体设备
+* 最右边是用户空间，所有的输入设备以文件的形式提供给用户应用程序使用
+* 中间分为三层：
+    * 驱动层：输入设备的具体驱动程序，比如按键驱动程序，向内核层报告输入内容。
+    * 核心层：承上启下，为驱动层提供输入设备注册和操作接口。通知事件层对输入事件进行处理。
+    * 事件层：主要和用户空间进行交互。
+
+#### 58.1.2 input 驱动编写流程
+
+大体流程：
+
+1. input 核心层会向 Linux 内核注册一个字符设备
+2. 在使用 input 子系统的时候我们只需要注册一个input设备即可 `input_dev`
+3. 上报输入事件 `input_event`
+
+##### 1. input 核心层注册字符设备
+
+input 核心层会向 Linux 内核注册一个字符设备。
+
+核心层代码：`drivers/input/input.c`
+
+```c
+        示例代码 58.1.2.1 input 核心层创建字符设备过程
+1767 struct class input_class = {
+1768    .name = "input",
+1769    .devnode = input_devnode,
+1770 };
+......
+2414 static int __init input_init(void)
+2415 {
+2416    int err;
+2417
+2418    err = class_register(&input_class);
+2419    if (err) {
+2420        pr_err("unable to register input_dev class\n");
+2421        return err;
+2422    }
+2423
+2424    err = input_proc_init();
+2425    if (err)
+2426        goto fail1;
+2427
+2428    err = register_chrdev_region(MKDEV(INPUT_MAJOR, 0),
+2429    INPUT_MAX_CHAR_DEVICES, "input");
+2430    if (err) {
+2431        pr_err("unable to register char major %d", INPUT_MAJOR);
+2432        goto fail2;
+2433    }
+2434
+2435    return 0;
+2436
+2437    fail2: input_proc_exit();
+2438    fail1: class_unregister(&input_class);
+2439    return err;
+2440 }
+```
+
+* 第2418行，注册一个 input 类，这样系统启动以后就会在`/sys/class`目录下有一个input子目录
+
+  ![image-20250108120717754](正点原子-Linux驱动学习.assets/image-20250108120717754.png)
+
+* 第2428~2429行，注册一个字符设备，主设备号为`INPUT_MAJOR`，input子系统的所有设备主设备号都为13，我们在使用input子系统处理输入设备的时候就不需要去注册字符设备了，我们只需要向系统注册一个`input_device`即可。
+
+##### 2. 注册`input_dev`
+
+在使用 input 子系统的时候我们只需要注册一个 input 设备即可。
+
+`input_dev` 结构体表示 input设备，此结构体定义在`include/linux/input.h`文件中：
+
+```c
+    			示例代码 58.1.2.2 input_dev 结构体
+121 struct input_dev {
+122     const char *name;
+123     const char *phys;
+124     const char *uniq;
+125     struct input_id id;
+126
+127     unsigned long propbit[BITS_TO_LONGS(INPUT_PROP_CNT)];
+128
+129     unsigned long evbit[BITS_TO_LONGS(EV_CNT)]; /* 事件类型的位图 */
+130     unsigned long keybit[BITS_TO_LONGS(KEY_CNT)]; /* 按键值的位图 */
+131     unsigned long relbit[BITS_TO_LONGS(REL_CNT)]; /* 相对坐标的位图 */ 
+132     unsigned long absbit[BITS_TO_LONGS(ABS_CNT)]; /* 绝对坐标的位图 */
+133     unsigned long mscbit[BITS_TO_LONGS(MSC_CNT)]; /* 杂项事件的位图 */
+134     unsigned long ledbit[BITS_TO_LONGS(LED_CNT)]; /*LED 相关的位图 */
+135     unsigned long sndbit[BITS_TO_LONGS(SND_CNT)];/* sound 有关的位图 */
+136     unsigned long ffbit[BITS_TO_LONGS(FF_CNT)]; /* 压力反馈的位图 */
+137     unsigned long swbit[BITS_TO_LONGS(SW_CNT)]; /*开关状态的位图 */
+......
+189     bool devres_managed;
+190 };
+```
+
+* 第 129 行，evbit 表示输入事件类型，可选的事件类型定义在 `include/uapi/linux/input.h` 文件中。比如本章我们要使用到按键，那么就需要注册`EV_KEY`事件，如果要使用连按功能的话还需要注册`EV_REP`事件。
+
+  ```c
+          示例代码 58.1.2.3 事件类型
+  #define EV_SYN 0x00 /* 同步事件 */
+  #define EV_KEY 0x01 /* 按键事件 */
+  #define EV_REL 0x02 /* 相对坐标事件 */
+  #define EV_ABS 0x03 /* 绝对坐标事件 */
+  #define EV_MSC 0x04 /* 杂项(其他)事件 */
+  #define EV_SW 0x05 /* 开关事件 */
+  #define EV_LED 0x11 /* LED */
+  #define EV_SND 0x12 /* sound(声音) */
+  #define EV_REP 0x14 /* 重复事件 */
+  #define EV_FF 0x15 /* 压力事件 */
+  #define EV_PWR 0x16 /* 电源事件 */
+  #define EV_FF_STATUS 0x17 /* 压力状态事件 */
+  ```
+
+* 第129行~137行的evbit、keybit、relbit等等都是存放不同事件对应的值。比如我们本章要使用按键事件，因此要用到keybit，keybit就是按键事件使用的位图，Linux 内核定义了很多按键值，这些按键值定义在`include/uapi/linux/input.h`文件中，按键值如下：
+
+  ```c
+  		示例代码 58.1.2.4 按键值
+  #define KEY_RESERVED 0
+  #define KEY_ESC 1
+  #define KEY_1 2
+  #define KEY_2 3
+  ...
+  ```
+
+  可以将开发板上的KEY按键值设置成上面定义中的任意一个。
+
+`input_dev` 注册过程如下：
+
+1. 使用`input_allocate_device`函数申请一个`input_dev`。
+2. 初始化`input_dev`的事件类型以及事件值。
+3. 使用`input_register_device`函数向 Linux 系统注册前面初始化好的`input_dev`。
+4. 卸载input驱动的时候需要先使用`input_unregister_device`函数注销掉注册的`input_dev`，然后使用`input_free_device`函数释放掉前面申请的`input_dev`。
+
+函数原型：
+
+```c
+struct input_dev *input_allocate_device(void)
+```
+
+* 参数：无。
+
+* 返回值：申请到的`input_dev`
+
+```c
+void input_free_device(struct input_dev *dev)
+```
+
+* dev：需要释放的`input_dev`
+* 返回值：无
+
+```c
+int input_register_device(struct input_dev *dev)
+```
+
+* dev：要注册的`input_dev`
+* 返回值：0，input_dev 注册成功；负值，input_dev 注册失败。
+
+```c
+void input_unregister_device(struct input_dev *dev)
+```
+
+* dev：要注销的`input_dev`
+* 返回值：无
+
+`input_dev`注册过程实例代码如下：
+
+```c
+示例代码 58.1.2.5 input_dev 注册流程
+1 struct input_dev *inputdev; /* input 结构体变量 */
+2 
+3 /* 驱动入口函数 */
+4 static int __init xxx_init(void)
+5 {
+6   ......
+7   inputdev = input_allocate_device(); /* 申请 input_dev */
+8   inputdev->name = "test_inputdev"; /* 设置 input_dev 名字 */
+9 
+10  /*********第一种设置事件和事件值的方法***********/
+11  __set_bit(EV_KEY, inputdev->evbit); /* 设置产生按键事件 */
+12  __set_bit(EV_REP, inputdev->evbit); /* 重复事件 */
+13  __set_bit(KEY_0, inputdev->keybit); /*设置产生哪些按键值 */
+14  /************************************************/
+15 
+16  /*********第二种设置事件和事件值的方法***********/
+17  keyinputdev.inputdev->evbit[0] = BIT_MASK(EV_KEY) |
+                                      BIT_MASK(EV_REP);
+18  keyinputdev.inputdev->keybit[BIT_WORD(KEY_0)] |=
+                                      BIT_MASK(KEY_0);
+19  /************************************************/
+20
+21  /*********第三种设置事件和事件值的方法***********/
+22  keyinputdev.inputdev->evbit[0] = BIT_MASK(EV_KEY) |
+                                     BIT_MASK(EV_REP);
+23  input_set_capability(keyinputdev.inputdev, EV_KEY, KEY_0);
+24  /************************************************/
+25 
+26  /* 注册 input_dev */
+27  input_register_device(inputdev);
+28  ......
+29  return 0;
+30 }
+31
+32 /* 驱动出口函数 */
+33 static void __exit xxx_exit(void)
+34 {
+35  input_unregister_device(inputdev); /* 注销 input_dev */
+36  input_free_device(inputdev); /* 删除 input_dev */
+37 }
+```
+
+##### 3. 上报输入事件
+
+input设备都是具有输入功能的，我们需要获取到具体的输入值（或者说是输入事件），然后讲输入事件上报给linux内核。比如按键，我们需要在按键中断处理函数或者消抖定时器中将按键值上报给linux内核。
+
+上报事件的API函数：
+
+* `input_event`函数：可以上报所有的事件类型和事件值
+
+  ```c
+  void input_event(struct input_dev *dev, 
+                   unsigned int type, 
+                   unsigned int code, 
+                   int value)
+  ```
+
+  * dev：需要上报的 `input_dev`
+  * type: 上报的事件类型，比如`EV_KEY`
+  * code: 事件码，也就是我们注册的按键值，比如`KEY_0`、`KEY_1`等等。
+  * value: 事件值，比如1表示按键按下，0表示按键松开。
+  * 返回值：无
+
+* Linux 内核也提供了其他的针对具体事件的上报函数，这些函数其实都用到了`input_event`函数
+
+  ```c
+  static inline void input_report_key(struct input_dev *dev, unsigned int code, int value)
+  void input_report_rel(struct input_dev *dev, unsigned int code, int value)
+  void input_report_abs(struct input_dev *dev, unsigned int code, int value)
+  void input_report_ff_status(struct input_dev *dev, unsigned int code, int value)
+  void input_report_switch(struct input_dev *dev, unsigned int code, int value)
+  void input_mt_sync(struct input_dev *dev)
+  ```
+
+上报事件后还需要使用`input_sync`函数来告诉linux内核input子系统上报结束，`input_sync`
+
+```c
+void input_sync(struct input_dev *dev)
+```
+
+* dev：需要上报同步事件的`input_dev`
+* 返回值：无
+
+上报事件的实例代码：
+
+```c
+                示例代码 58.1.2.7 事件上报参考代码
+/* 用于按键消抖的定时器服务函数 */
+void timer_function(unsigned long arg)
+{
+    unsigned char value;
+
+    value = gpio_get_value(keydesc->gpio); /* 读取 IO 值 */
+    if(value == 0){ /* 按下按键 */
+        /* 上报按键值 */
+        input_report_key(inputdev, KEY_0, 1); /* 最后一个参数 1，按下 */
+        input_sync(inputdev); /* 同步事件 */
+    } else { /* 按键松开 */
+        input_report_key(inputdev, KEY_0, 0); /* 最后一个参数 0，松开 */
+        input_sync(inputdev); /* 同步事件 */
+    } 
+}
+```
+
+**input_event结构体**
+
+Linux 内核使用`input_event`这个结构体来表示所有的输入事件，`input_envent`结构体定义在`include/uapi/linux/input.h`文件中
+
+```c
+    	示例代码 58.1.3.1 input_event 结构体
+struct input_event {
+    struct timeval time;
+    __u16 type;
+    __u16 code;
+    __s32 value;
+};
+```
+
+* time：事件发生的时间，为timeval结构体类型，timeval结构体定义如下：
+
+  ```c
+  typedef long __kernel_long_t;
+  typedef __kernel_long_t __kernel_time_t;
+  typedef __kernel_long_t __kernel_suseconds_t;
+  
+  struct timeval {
+      __kernel_time_t tv_sec; /* 秒 */
+      __kernel_suseconds_t tv_usec; /* 微秒 */
+  };
+  ```
+
+* type：事件类型，比如`EV_KEY`，表示此次事件为按键事件，此成员变量为16位。
+
+* code：事件码，比如在`EV_KEY`事件中code就表示具体的按键码，如：`KEY_0`、`KEY_1`等等这些按键。此成员变量为16位。
+
+* value：值，比如`EV_KEY`事件中value就是按键值，1表示按键按下，0表示按键没被按下或松开。
+
+`input_event`这个结构体非常重要，因为所有的输入设备最终都是按照`input_event`结构体呈现给用户的，用户应用程序可以通过`input_event`来获取到具体的输入事件或相关的值。
+
+### 58.2 实验
+
+例程：`58_input`
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
