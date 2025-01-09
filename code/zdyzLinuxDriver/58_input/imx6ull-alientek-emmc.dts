@@ -1,0 +1,19 @@
+/ {
+    iomuxc{
+        pinctrl_key: keygrp {
+            fsl,pins = <
+                MUX6UL_PAD_UART1_CTS_B__GPIO1_IO18  0xF080 /* KEY0 */
+            >;
+        };
+    };
+
+    key {
+        #address-cells = <1>;
+        #size-cells = <1>;
+        compatible = "atkalpha-key";
+        pinctrl-names = "default";
+        pinctrl-0 = <&pinctrl_key>;
+        key-gpio = <&gpio1 18 GPIO_ACTIVE_LOW>;     /* KEY0 */
+        status = "okay"；
+    };
+};
