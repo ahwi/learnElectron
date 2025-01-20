@@ -2030,6 +2030,462 @@ struct input_event {
 
 
 
+## 第59章 Linux LCD驱动实验
+
+### 59.1 Linux下LCD驱动简析
+
+#### 59.1.1 Framebuffer设备
+
+裸机LCD驱动编写流程：
+
+* 初始化`I.MX6U`的eLCDIF控制器，重点就是LCD屏幕宽(with)、高(height)、hspw、hbp、hfp、vspw、vbp和vfp等信息。
+
+* 初始化LCD像素时钟
+* 设置RGBLCD显存
+* 应用程序直接通过操作显存来操作LCD，实现在LCD上显示字符、图片等信息
+
+linux系统和裸机操作LCD的区别：
+
+* linux应用程序也是通过操作RGBLCD的显存来实现在LCD上显示信息的。
+* 在裸机中，我们可以随意分配显存，但是在linux系统中内存的管理很严格，显存是需要申请的，因为虚拟内存的存在，驱动程序设置的显存和应用程序访问的显存需要对应到同一片内存中。
+
+Framebuffer 帧缓冲，简称fb：
+
+* fb是一种机制：将系统中所有跟显示有关的硬件及软件集合起来，虚拟出一个fb设备，当我们编写好LCD驱动后会生成一个名为`/dev/fbx(x=0~n)`的设备，应用程序通过访问`/dev/fbx`设备就可以访问LCD了。
+
+* NXP官方的linux内核已经开启LCD驱动，查看对应的设备文件：
+
+  ![image-20250120143717913](正点原子-Linux驱动学习.assets/image-20250120143717913.png)
+
+* `/dev/fb0`是个字符设备，有个对应的`file_operations`操作集：`drivers/video/fbdev/core/fbmem.c `
+
+  ```c
+              示例代码 59.1.1.1 fb 设备的操作集
+  1495 static const struct file_operations fb_fops = {
+  1496    .owner = THIS_MODULE,
+  1497    .read = fb_read,
+  1498    .write = fb_write,
+  1499    .unlocked_ioctl = fb_ioctl,
+  1500    #ifdef CONFIG_COMPAT
+  1501    .compat_ioctl = fb_compat_ioctl,
+  1502    #endif
+  1503    .mmap = fb_mmap,
+  1504    .open = fb_open,
+  1505    .release = fb_release,
+  1506    #ifdef HAVE_ARCH_FB_UNMAPPED_AREA
+  1507    .get_unmapped_area = get_fb_unmapped_area,
+  1508    #endif
+  1509    #ifdef CONFIG_FB_DEFERRED_IO
+  1510    .fsync = fb_deferred_io_fsync,
+  1511    #endif
+  1512    .llseek = default_llseek,
+  1513 };
+  ```
+
+#### 59.1.2 LCD驱动简析
+
+不同分辨率的LCD屏幕其`eLCDIF`控制器驱动代码都是一样的，只需通过设备树配置好对应的屏幕参数即可。
+
+下面介绍NXP官方编写的LCD驱动：
+
+1. `lcdif`节点，`imx6ull.dtsi`：
+
+   ```c
+               示例代码 59.1.2.1 imx6ull.dtsi 文件中 lcdif 节点内容
+   1 lcdif: lcdif@021c8000 {
+   2       compatible = "fsl,imx6ul-lcdif", "fsl,imx28-lcdif";
+   3       reg = <0x021c8000 0x4000>;
+   4       interrupts = <GIC_SPI 5 IRQ_TYPE_LEVEL_HIGH>;
+   5       clocks = <&clks IMX6UL_CLK_LCDIF_PIX>,
+   6       <&clks IMX6UL_CLK_LCDIF_APB>,
+   7       <&clks IMX6UL_CLK_DUMMY>;
+   8       clock-names = "pix", "axi", "disp_axi";
+   9       status = "disabled";
+   10 };
+   ```
+
+   * `lcdif`节点信息是所有使用`I.MX6ULL`芯片的板子所共有的，并不是完整的`lcdif`节点信息。像屏幕参数这些需要根据不同的硬件平台去添加，不能直接修改该文件，而是在`imx6ull alientek-emmc.dts`中，引用`lcdif`节点来添加信息。
+
+2. linux下Frambuffer驱动的编写流程：
+
+   * Linux 内核将所有的 Framebuffer 抽象为一个叫做`fb_info`的结构体，`fb_info`结构体包含了 Framebuffer 设备的完整属性和操作集合，因此每一个 Framebuffer 设备都必须有一个`fb_info`。
+
+   * LCD 的驱动就是构建`fb_info`，并且向系统注册`fb_info`的过程。
+
+   * `fb_info`结构体：定义在`include/linux/fb.h`
+
+     ```c
+     			示例代码 59.1.2.3 fb_info 结构体
+     448 struct fb_info {
+     449     atomic_t count;
+     450     int node;
+     451     int flags;
+     452     struct mutex lock; /* 互斥锁 */
+     453     struct mutex mm_lock; /* 互斥锁，用于 fb_mmap 和 smem_*域*/
+     454     struct fb_var_screeninfo var; /* 当前可变参数 */
+     455     struct fb_fix_screeninfo fix; /* 当前固定参数 */
+     456     struct fb_monspecs monspecs; /* 当前显示器特性 */
+     457     struct work_struct queue; /* 帧缓冲事件队列 */
+     458     struct fb_pixmap pixmap; /* 图像硬件映射 */
+     459     struct fb_pixmap sprite; /* 光标硬件映射 */
+     460     struct fb_cmap cmap; /* 当前调色板 */
+     461     struct list_head modelist; /* 当前模式列表 */
+     462     struct fb_videomode *mode; /* 当前视频模式 */
+     463 
+     464     #ifdef CONFIG_FB_BACKLIGHT /* 如果 LCD 支持背光的话 */
+     465     /* assigned backlight device */
+     466     /* set before framebuffer registration, 
+     467     remove after unregister */
+     468     struct backlight_device *bl_dev; /* 背光设备 */
+     469 
+     470     /* Backlight level curve */
+     471     struct mutex bl_curve_mutex; 
+     472     u8 bl_curve[FB_BACKLIGHT_LEVELS];
+     473     #endif
+     ......
+     479     struct fb_ops *fbops; /* 帧缓冲操作函数集 */ 
+     480     struct device *device; /* 父设备 */
+     481     struct device *dev; /* 当前 fb 设备 */
+     482     int class_flag; /* 私有 sysfs 标志 */
+     ......
+     486     char __iomem *screen_base; /* 虚拟内存基地址(屏幕显存) */
+     487     unsigned long screen_size; /* 虚拟内存大小(屏幕显存大小) */
+     488     void *pseudo_palette; /* 伪 16 位调色板 */
+     ......
+     507 };
+     ```
+
+   * `fb_ops`操作集合：
+
+     ```c
+     					示例代码 59.1.2.5 mxsfb_ops 操作集合
+     987 static struct fb_ops mxsfb_ops = {
+     988     .owner = THIS_MODULE,
+     989     .fb_check_var = mxsfb_check_var,
+     990     .fb_set_par = mxsfb_set_par,
+     991     .fb_setcolreg = mxsfb_setcolreg,
+     992     .fb_ioctl = mxsfb_ioctl,
+     993     .fb_blank = mxsfb_blank,
+     994     .fb_pan_display = mxsfb_pan_display,
+     995     .fb_mmap = mxsfb_mmap,
+     996     .fb_fillrect = cfb_fillrect,
+     997     .fb_copyarea = cfb_copyarea,
+     998     .fb_imageblit = cfb_imageblit,
+     999 };
+     ```
+
+3. LCD驱动文件`drivers/video/fbdev/mxsfb.c`
+
+   ```c
+   示例代码 59.1.2.2 platform 下的 LCD 驱动
+   1362 static const struct of_device_id mxsfb_dt_ids[] = {
+   1363    { .compatible = "fsl,imx23-lcdif", .data = &mxsfb_devtype[0], },
+   1364    { .compatible = "fsl,imx28-lcdif", .data = &mxsfb_devtype[1], },
+   1365    { /* sentinel */ }
+   1366    };
+   ......
+   1625 static struct platform_driver mxsfb_driver = {
+   1626    .probe = mxsfb_probe,
+   1627    .remove = mxsfb_remove,
+   1628    .shutdown = mxsfb_shutdown,
+   1629    .id_table = mxsfb_devtype,
+   1630    .driver = {
+   1631    .name = DRIVER_NAME,
+   1632    .of_match_table = mxsfb_dt_ids,
+   1633    .pm = &mxsfb_pm_ops,
+   1634    },
+   1635 };
+   1636
+   1637 module_platform_driver(mxsfb_driver);
+   ```
+
+4. `mxsfb_probe `函数，主要内容：
+
+   * 申请`fb_info`
+   * 初始化`fb_info`结构体中的各个成员变量
+   * 初始化`eLCDIF`控制器
+   * 使用`register_framebuffer`函数向linux内核注册初始化好的`fb_info`
+   * 函数内容 略
+
+### 59.2 硬件原理图分析
+
+### 59.3 LCD驱动程序编写
+
+* 6ULL的`eLCDIF`接口驱动程序已经由NXP编写好了
+
+* 我们需要做的就是按照所使用的LCD来修改设备树
+
+  重点注意三个地方：
+
+  * LCD所使用的IO配置
+  * LCD屏幕节点修改：修改相应的属性值，换成我们所使用的LCD屏幕参数
+  * LCD背光节点信息修改：根据实际所使用的背光IO来修改相应的设备节点信息。
+
+#### 1. LCD屏幕IO配置
+
+在`imx6ull-alientek-emmc.dts`文件中的`iomuxc`节点中找到如下内容：
+
+```c
+            示例代码 59.3.1 设备树 LCD IO 配置
+1  pinctrl_lcdif_dat: lcdifdatgrp {
+2       fsl,pins = <
+3       MX6UL_PAD_LCD_DATA00__LCDIF_DATA00 0x79
+4       MX6UL_PAD_LCD_DATA01__LCDIF_DATA01 0x79
+5       MX6UL_PAD_LCD_DATA02__LCDIF_DATA02 0x79
+6       MX6UL_PAD_LCD_DATA03__LCDIF_DATA03 0x79
+7       MX6UL_PAD_LCD_DATA04__LCDIF_DATA04 0x79
+8       MX6UL_PAD_LCD_DATA05__LCDIF_DATA05 0x79
+9       MX6UL_PAD_LCD_DATA06__LCDIF_DATA06 0x79
+10      MX6UL_PAD_LCD_DATA07__LCDIF_DATA07 0x79
+11      MX6UL_PAD_LCD_DATA08__LCDIF_DATA08 0x79
+12      MX6UL_PAD_LCD_DATA09__LCDIF_DATA09 0x79
+13      MX6UL_PAD_LCD_DATA10__LCDIF_DATA10 0x79
+14      MX6UL_PAD_LCD_DATA11__LCDIF_DATA11 0x79
+15      MX6UL_PAD_LCD_DATA12__LCDIF_DATA12 0x79
+16      MX6UL_PAD_LCD_DATA13__LCDIF_DATA13 0x79
+17      MX6UL_PAD_LCD_DATA14__LCDIF_DATA14 0x79
+18      MX6UL_PAD_LCD_DATA15__LCDIF_DATA15 0x79
+19      MX6UL_PAD_LCD_DATA16__LCDIF_DATA16 0x79
+20      MX6UL_PAD_LCD_DATA17__LCDIF_DATA17 0x79
+21      MX6UL_PAD_LCD_DATA18__LCDIF_DATA18 0x79
+22      MX6UL_PAD_LCD_DATA19__LCDIF_DATA19 0x79
+23      MX6UL_PAD_LCD_DATA20__LCDIF_DATA20 0x79
+24      MX6UL_PAD_LCD_DATA21__LCDIF_DATA21 0x79
+25      MX6UL_PAD_LCD_DATA22__LCDIF_DATA22 0x79
+26      MX6UL_PAD_LCD_DATA23__LCDIF_DATA23 0x79
+27      >;
+28 };
+29
+30 pinctrl_lcdif_ctrl: lcdifctrlgrp {
+31      fsl,pins = <
+32      MX6UL_PAD_LCD_CLK__LCDIF_CLK 0x79
+33      MX6UL_PAD_LCD_ENABLE__LCDIF_ENABLE 0x79
+34      MX6UL_PAD_LCD_HSYNC__LCDIF_HSYNC 0x79
+35      MX6UL_PAD_LCD_VSYNC__LCDIF_VSYNC 0x79
+36      >;
+37 pinctrl_pwm1: pwm1grp {
+38      fsl,pins = <
+39      MX6UL_PAD_GPIO1_IO08__PWM1_OUT 0x110b0
+40      >;
+41 };
+```
+
+* 子节点`pinctrl_lcdif_dat`为RGB LCD的24根数据线配置项。
+* 字节点`pinctrl_lcdif_ctrl`为RGB LCD的4根控制线配置项，包括CLK、ENABLE、VSYNC和HSYNC。
+* 子节点`pinctrl_pwm1`为LCD 背光PWM引脚配置项。
+* 上面的代码中默认将LCD的电气属性都设置为0x79，我们这里改成0x49，也就是将LCD相关IO的驱动能力改为`R0/1`，降低了IO的驱动能力，原因是：正点原子的ALPHA开发板上的LCD接口用了三个SGM3157模拟开关，为了防止模拟开关影响到网络，因此需要降低LCD数据线的驱动能力。
+
+#### 2. LCD屏幕参数节点信息修改
+
+继续在`imx6ull-alientek-emmc.dts`文件中找到lcd if节点：
+
+```c
+            示例代码 59.3.2 lcdif 节点默认信息
+1 &lcdif {
+2   pinctrl-names = "default";
+3   pinctrl-0 = <&pinctrl_lcdif_dat /* 使用到的 IO */
+4   &pinctrl_lcdif_ctrl
+5   &pinctrl_lcdif_reset>;
+6   display = <&display0>;
+7   status = "okay";
+8 
+9   display0: display { /* LCD 属性信息 */
+10  bits-per-pixel = <16>; /* 一个像素占用几个 bit */
+11  bus-width = <24>; /* 总线宽度 */
+12  
+13  display-timings {
+14      native-mode = <&timing0>; /* 时序信息 */
+15      timing0: timing0 { 
+16          clock-frequency = <9200000>; /* LCD 像素时钟，单位 Hz */
+17          hactive = <480>; /* LCD X 轴像素个数 */
+18          vactive = <272>; /* LCD Y 轴像素个数 */
+19          hfront-porch = <8>; /* LCD hfp 参数 */
+20          hback-porch = <4>; /* LCD hbp 参数 */
+21          hsync-len = <41>; /* LCD hspw 参数 */
+22          vback-porch = <2>; /* LCD vbp 参数 */
+23          vfront-porch = <4>; /* LCD vfp 参数 */
+24          vsync-len = <10>; /* LCD vspw 参数 */
+25          
+26          hsync-active = <0>; /* hsync 数据线极性 */
+27          vsync-active = <0>; /* vsync 数据线极性 */
+28          de-active = <1>; /* de 数据线极性 */
+29          pixelclk-active = <0>; /* clk 数据线先极性 */
+30      };
+31  };
+32  };
+33 };
+```
+
+上面的代码就是向`imx6ull.dtsi`文件中的lcdif节点追加的内容。
+
+* `pinctrl-0`属性：LCD所使用的IO信息：
+  * `pinctrl_lcdif_dat`、`pinctrl_lcdif_ctrl`在前面的代码`59.3.1`中已讲解过。
+  * `pinctrl_lcdif_reset`LCD复位IO信息节点，正点原子的`ALPHA`开发板的LCD没有用到复位IO，因此该节点可以删除。
+  * `display`属性：指定LCD属性信息所在的子节点。
+  * `display0`子节点：描述LCD的参数信息
+    * `bits-per-pixel`属性：用于指明一个像素占用的bit数，默认为16bit。本教程将LCD配置为`RGB888`模式，因此一个像素点占用24bit，`bits-per-pixel`属性改为24。
+    * `bus-width`属性：用于设置数据线宽度，因为要配置为`RGB888`模式，因此也要设置为 24。
+  * `13~30`行 LCD的时许参数信息：重点要修改的地方，根据所使用的屏幕进行修改。
+
+以正点原子的 `ATK7016(7 寸 1024*600)`屏幕为例，将`imx6ull-alientek-emmc.dts`文件中的`lcdif`节点改为如下内容：
+
+```c
+            示例代码 59.3.3 针对 ATK7016 LCD 修改后的 lcdif 节点信息
+1 &lcdif {
+2       pinctrl-names = "default";
+3       pinctrl-0 = <&pinctrl_lcdif_dat /* 使用到的 IO */
+4       &pinctrl_lcdif_ctrl>;
+5       display = <&display0>;
+6       status = "okay";
+7       
+8       display0: display { /* LCD 属性信息 */
+9           bits-per-pixel = <24>; /* 一个像素占用 24bit */
+10          bus-width = <24>; /* 总线宽度 */
+11          
+12          display-timings {
+13              native-mode = <&timing0>; /* 时序信息 */
+14              timing0: timing0 { 
+15              clock-frequency = <51200000>;/* LCD 像素时钟，单位 Hz */
+16              hactive = <1024>; /* LCD X 轴像素个数 */
+17              vactive = <600>; /* LCD Y 轴像素个数 */
+18              hfront-porch = <160>; /* LCD hfp 参数 */
+19              hback-porch = <140>; /* LCD hbp 参数 */
+20              hsync-len = <20>; /* LCD hspw 参数 */
+21              vback-porch = <20>; /* LCD vbp 参数 */
+22              vfront-porch = <12>; /* LCD vfp 参数 */
+23              vsync-len = <3>; /* LCD vspw 参数 */
+24              
+25              hsync-active = <0>; /* hsync 数据线极性 */
+26              vsync-active = <0>; /* vsync 数据线极性 */
+27              de-active = <1>; /* de 数据线极性 */
+28              pixelclk-active = <0>; /* clk 数据线先极性 */
+29              };
+30          };
+31      };
+32 };
+```
+
+#### 3. LCD屏幕背光节点信息
+
+正点原子的LCD接口背光控制IO连接到了`I.MX6U`的`GPIO1_IO08`引脚上，`GPIO1_IO08`复用为`PWM1_OUT`，通过PWM信号来控制LCD屏幕背光的亮度。
+
+> 正点原子的LCD背光引脚和NXP官方的EVK开发板背光引脚一样，所以背光的设备树节点是不需要修改的。
+
+如何在设备树中添加背光节点信息：
+
+1. `GPIO1_IO08`的IO配置，在`imx6ull-alientek-emmc.dts`中：
+
+   ```c
+           示例代码 59.3.4 GPIO1_IO08 引脚配置
+   1 pinctrl_pwm1: pwm1grp {
+   2   fsl,pins = <
+   3       MX6UL_PAD_GPIO1_IO08__PWM1_OUT 0x110b0
+   4   >;
+   5 };
+   ```
+
+   * `GPIO1_IO08`这个IO复用为`PWM1_OUT`，并设置电气属性值为`0x110b0`
+
+2. LCD背光需要用到PWM1，因此也需要配置该节点：
+
+   * 在`imx6ull.dtsi`找到如下内容：
+
+     ```c
+                 示例代码 59.3.5 imx6ull.dtsi 文件中的 pwm1 节点
+     1 pwm1: pwm@02080000 {
+     2   compatible = "fsl,imx6ul-pwm", "fsl,imx27-pwm";
+     3   reg = <0x02080000 0x4000>;
+     4   interrupts = <GIC_SPI 83 IRQ_TYPE_LEVEL_HIGH>;
+     5   clocks = <&clks IMX6UL_CLK_PWM1>,
+     6           <&clks IMX6UL_CLK_PWM1>;
+     7   clock-names = "ipg", "per";
+     8   #pwm-cells = <2>;
+     9 };
+     ```
+
+     该文件的内容不要修改，要修改pwm1的话在`imx6ull-alientek-emmc.dts`中修改
+
+   * 在`imx6ull-alientek-emmc.dts`中向pwm1追加内容：
+
+     ```c
+             示例代码 59.3.6 向 pwm1 节点追加的内容
+     1 &pwm1 {
+     2   pinctrl-names = "default";
+     3   pinctrl-0 = <&pinctrl_pwm1>;
+     4   status = "okay";
+     5 };
+     ```
+
+     * 第3行，设置pwm1所使用的IO为`pinctrl_pwm1`，也就是示例代码 59.3.4 所定义的`GPIO1_IO08`这个IO。
+     * 第4行，将status设置为okay
+
+3. 使用`blacklight`节点将LCD背光和`PWM1_OUT`引脚连接起来
+
+   * backlight节点描述可以参考`Documentation/devicetree/indings/video/backlight/pwm-backlight.txt`这个文档，此文档详细讲解了backlight节点该如何去创建，这里大概总结一下
+
+     * 节点名称要为“backlight”
+     * 节点的 compatible 属性值要为“pwm-backlight”
+     * pwms属性用于描述背光所使用的PWM以及PWM频率
+     * brightness-levels 属性描述亮度级别，范围为0~255，0 表示PWM占空比为0%，也就是亮度最低，255表示100%占空比，也就是亮度最高。
+     * `default-brightness-level`属性为默认亮度级别
+
+   * `imx6ull-alientek-emmc.dts`中`backlight`节点的内容
+
+     ```c
+     		示例代码 59.3.7 backlight 节点内容
+     1 backlight {
+     2   compatible = "pwm-backlight";
+     3   pwms = <&pwm1 0 5000000>;
+     4   brightness-levels = <0 4 8 16 32 64 128 255>;
+     5   default-brightness-level = <6>;
+     6   status = "okay";
+     7 };
+     ```
+
+### 59.4 运行测试
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
