@@ -102,15 +102,285 @@ FOC算法的两个核心：
 
 #### 投影过程的详细推导
 
+求导过程就是在`α-β坐标系`进行三角函数的推导：
+
+![image-20250506161910079](dengFOC学习.assets/image-20250506161910079.png)
+
+针对α-β坐标系中α轴，有：
+
+​	$$I_\alpha = i_a - \sin30^\circ i_b - \cos60^\circ i_c$$
+
+​	$$I_\alpha = i_a - \frac{1}{2} i_b - \frac{1}{2} i_c$$
+
+针对α-β坐标系中β轴，有：
+
+​	$$I_\beta = \cos30^\circ i_b - \cos30^\circ i_c$$
+
+​	$$I_\beta = \frac{\sqrt{3}}{2} i_b - \frac{\sqrt{3}}{2} i_c$$
+
+把上面的投影结果列成矩阵形式，有：
+$$
+\left[
+\begin{matrix}
+I_\alpha \\
+I_\beta
+\end{matrix}
+\right]
+=
+\left[
+\begin{matrix}
+1 & -\frac{1}{2} & -\frac{1}{2} \\
+0 & \frac{\sqrt{3}}{2} & -\frac{\sqrt{3}}{2}
+\end{matrix}
+\right]
+\left[
+\begin{matrix}
+i_a \\
+i_b \\
+i_c
+\end{matrix}
+\right]
+$$
 
 
+这就是**克拉克变换的第一步，作投影**。
 
+上面的推导较简单，但是最终论文和资料上克拉克变换的体现形式不是上面这样子，而是下面这两种方式：
 
+* 等辐值变换方式，加上一个等辐值变换系数 $\frac{2}{3}$ ，公式如下：
+  $$
+  \left[
+  \begin{matrix}
+  I_\alpha \\
+  I_\beta
+  \end{matrix}
+  \right]
+  =
+  \frac{2}{3}
+  \left[
+  \begin{matrix}
+  1 & -\frac{1}{2} & -\frac{1}{2} \\
+  0 & \frac{\sqrt{3}}{2} & -\frac{\sqrt{3}}{2}
+  \end{matrix}
+  \right]
+  \left[
+  \begin{matrix}
+  i_a \\
+  i_b \\
+  i_c
+  \end{matrix}
+  \right]
+  $$
 
+* 等功率变换方式，加上一个等功率变换系数 $\sqrt{\frac{2}{3}}$ ，公式如下：
+  $$
+  \left[
+  \begin{matrix}
+  I_\alpha \\
+  I_\beta
+  \end{matrix}
+  \right]
+  =
+  \sqrt{\frac{2}{3}}
+  \left[
+  \begin{matrix}
+  1 & -\frac{1}{2} & -\frac{1}{2} \\
+  0 & \frac{\sqrt{3}}{2} & -\frac{\sqrt{3}}{2}
+  \end{matrix}
+  \right]
+  \left[
+  \begin{matrix}
+  i_a \\
+  i_b \\
+  i_c
+  \end{matrix}
+  \right]
+  $$
 
+<font color=blue>下面只讨论等辐值变换方式</font>
 
+#### 克拉克变换的等辐值形式
 
+何为等幅值变换？用α相电流输入1A电流的特例来举例：
 
+用a相电流输入1A电流的特例来举例，当电流输入时候，根据基尔霍夫电流定律（电路中任一个节点上，在任意时刻，流入节点的电流之和等于流出节点的电流之和，如下图），有：
+$$
+i_a + i_b + i_c = 0
+$$
+![image-20250506171016415](dengFOC学习.assets/image-20250506171016415.png)
+
+设定$i_a$为-1，则根据上面的式子，有$i_b$和$i_c$为$\frac{1}{2}$，列成矩阵形式后，如下所示：
+$$
+\left[
+\begin{matrix}
+i_a \\
+i_b \\
+i_c
+\end{matrix}
+\right]
+=
+\left[
+\begin{matrix}
+-1 \\
+\frac{1}{2} \\
+\frac{1}{2}
+\end{matrix}
+\right]
+$$
+将这个$i_a$ $i_b$ $i_c$的参数带入到我们上面的直接投影式子中，得到：
+$$
+\left[
+\begin{matrix}
+I_\alpha \\
+I_\beta
+\end{matrix}
+\right]
+=
+
+\left[
+\begin{matrix}
+1 & -\frac{1}{2} & -\frac{1}{2} \\
+0 & \frac{\sqrt{3}}{2} & -\frac{\sqrt{3}}{2}
+\end{matrix}
+\right]
+\left[
+\begin{matrix}
+i_a \\
+i_b \\
+i_c
+\end{matrix}
+\right] \\
+\quad\quad\quad
+=
+\left[
+\begin{matrix}
+1 & -\frac{1}{2} & -\frac{1}{2} \\
+0 & \frac{\sqrt{3}}{2} & -\frac{\sqrt{3}}{2}
+\end{matrix}
+\right]
+\left[
+\begin{matrix}
+-1 \\
+\frac{1}{2} \\
+\frac{1}{2}
+\end{matrix}
+\right] \\
+= 
+\left[
+\begin{matrix}
+-\frac{3}{2} \\
+0
+\end{matrix}
+\right] \quad\quad\quad\quad
+$$
+这就看出问题了，显然，尽管矢量a与$\alpha$轴重合，但是由于b,c相电流投影的存在，导致在a相输入1A电流，反应在$\alpha$轴上的电流并不是等辐值的1A，而是$-\frac{2}{3}$。
+
+因此，<font color=blue>为了让式子等辐值，即使得a相1A时，反应在α轴上的电流也是1A，</font>我们就得乘上系数$\frac{2}{3}$，针对上面的投影式乘上$\frac{2}{3}$后，式子变换为：
+$$
+\left[
+\begin{matrix}
+I_\alpha \\
+I_\beta
+\end{matrix}
+\right]
+=
+\frac{2}{3}
+\left[
+\begin{matrix}
+1 & -\frac{1}{2} & -\frac{1}{2} \\
+0 & \frac{\sqrt{3}}{2} & -\frac{\sqrt{3}}{2}
+\end{matrix}
+\right]
+\left[
+\begin{matrix}
+-1 \\
+\frac{1}{2} \\
+\frac{1}{2}
+\end{matrix}
+\right] \\
+= 
+\frac{2}{3}
+\left[
+\begin{matrix}
+-\frac{3}{2} \\
+0
+\end{matrix}
+\right] \quad\quad\quad\quad \\
+= 
+\left[
+\begin{matrix}
+-1 \\
+0
+\end{matrix}
+\right] \quad\quad\quad\quad
+$$
+这就是**克拉克变换的等幅值表现形式**。
+
+#### 基于等辐值变换进一步推导
+
+基于等辐值变换，我们就能够得到$\alpha$、$\beta$相位与$i_a$、$i_b$、$i_c$的关系，已知等辐值变换式：
+$$
+\left[
+\begin{matrix}
+I_\alpha \\
+I_\beta
+\end{matrix}
+\right]
+=
+\frac{2}{3}
+\left[
+\begin{matrix}
+1 & -\frac{1}{2} & -\frac{1}{2} \\
+0 & \frac{\sqrt{3}}{2} & -\frac{\sqrt{3}}{2}
+\end{matrix}
+\right]
+\left[
+\begin{matrix}
+i_a \\
+i_b \\
+i_c
+\end{matrix}
+\right]
+$$
+移项：
+$$
+I_\alpha = \frac{2}{3}(i_a - \frac{1}{2}i_b - \frac{1}{2}i_c) \\
+I_\alpha = \frac{2}{3}[i_a - \frac{1}{2}(i_b + i_c)]
+$$
+又根据上面所提到的基尔霍夫电流定律：
+$$
+i_a + i_b + i_c = 0 \\
+\frac{1}{2} i_a = -\frac{1}{2}(i_b + i_c) \\
+I_\alpha = \frac{2}{3}[i_a + \frac{1}{2}i_a] \\
+I_\alpha = \frac{2}{3}*\frac{3}{2} i_a \\
+I_\alpha = i_a
+$$
+通过上述步骤，成功推导$I_\alpha = i_a$。
+
+进一步，可求$I_\beta$，已知：
+$$
+I_\beta = \frac{2}{3}(\frac{\sqrt{3}}{2}i_b - \frac{\sqrt{3}}{2}i_c) \\
+= \frac{\sqrt{3}}{3}(i_b - i_c) \quad \\
+= \frac{1}{\sqrt{3}}(i_b - i_c) \quad
+$$
+又根据上面所提到的基尔霍夫电流定律：
+$$
+i_a + i_b + i_c = 0 \\ 
+i_c = -(i_a + i_b) \\
+I_\beta = \frac{1}{\sqrt{3}}*(i_b-i_c) \\
+\quad \quad \quad= \frac{1}{\sqrt{3}}*(i_b+i_a+i_b) \\
+\quad \quad= \frac{1}{\sqrt{3}}*(2i_b+i_a)
+$$
+综合上述步骤，我们已经得到了列出<font color=blue>$i_a$、$i_b$、$i_c$电流与$I\alpha$、$I_\beta$电流的关键关系式</font>，总结如下：
+$$
+\left\{
+\begin{array}
+	I_\alpha = i_a \\
+    I_\beta = \frac{1}{\sqrt{3}}*(2i_b+i_a)
+\end{array}
+\right.
+$$
+<font color=blue>在式子中，我们消去了变量$i_c$，</font>这是因为由于基尔霍夫电流定律的存在，我们并不需要知道所有三相电流，我们只需要知道两相电流就能够求解得到另外一相的电流，反映在硬件上，<font color=blue>我们就可以省去一路的电流传感器，节省了成本。</font>
 
 ## 参考资料
 
