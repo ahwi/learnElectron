@@ -374,13 +374,64 @@ $$
 综合上述步骤，我们已经得到了列出<font color=blue>$i_a$、$i_b$、$i_c$电流与$I\alpha$、$I_\beta$电流的关键关系式</font>，总结如下：
 $$
 \left\{
-\begin{array}
+\begin{array} \\
 	I_\alpha = i_a \\
     I_\beta = \frac{1}{\sqrt{3}}*(2i_b+i_a)
 \end{array}
 \right.
 $$
 <font color=blue>在式子中，我们消去了变量$i_c$，</font>这是因为由于基尔霍夫电流定律的存在，我们并不需要知道所有三相电流，我们只需要知道两相电流就能够求解得到另外一相的电流，反映在硬件上，<font color=blue>我们就可以省去一路的电流传感器，节省了成本。</font>
+
+### 2.2 克拉克逆变换
+
+上节课，我们用矢量来表示一个三相时域上的复杂问题，并且用克拉克变换对它进行了降维，得到了降维后的简化表达式。
+
+**克拉克逆变换：**能够发过来把降维后的形式重新升维，变回原来的$i_a$、$i_b$、$i_c$三相电流波形。
+
+根据上一节，我们得到了如下公式：
+$$
+\left\{
+\begin{array} \\
+	I_\alpha = i_a \\
+    I_\beta = \frac{1}{\sqrt{3}}*(2i_b+i_a)
+\end{array}
+\right.
+$$
+推导逆变换$i_b$：
+$$
+I_\beta = \frac{1}{\sqrt{3}}*(2i_b+i_a) \\
+I_\beta = \frac{1}{\sqrt{3}}*(2i_b+I_\alpha) \\
+\sqrt{3} I_\beta = 2i_b+I_\alpha \\
+2i_b = \sqrt{3} I_\beta - I_\alpha \\
+i_b = \frac{\sqrt{3}I_\beta-I_\alpha}{2}
+$$
+根据`基尔霍夫电流定律`：$i_a + i_b + i_c = 0$，得到逆变换$i_c$：
+$$
+i_c = -(i_a+i_b) \\
+= -I_\alpha - i_b \\
+= -I_\alpha - \frac{\sqrt{3}I_\beta-I_\alpha}{2} \\
+= \frac{-2I_\alpha - \sqrt{3}I_\beta+I_\alpha}{2} \\
+= \frac{-I_\alpha - \sqrt{3}I_\beta}{2}
+$$
+则克拉克逆变换三个式子如下：
+$$
+\left\{
+\begin{array} \\
+	i_a = I_\alpha \\
+    i_b = \frac{\sqrt{3}I_\beta-I_\alpha}{2} \\
+    i_c = \frac{-I\alpha-\sqrt{3}I_\beta}{2}
+\end{array}
+\right.
+$$
+至此，我们就掌握了把三相电流波形进行降维（克拉克变换）的方法以及把降维后的结构还原回去的方法（克拉克逆变换）。
+
+### 2.3 帕克变换
+
+
+
+
+
+
 
 ## 参考资料
 
