@@ -568,12 +568,95 @@ $$
 <img src="dengFOC学习.assets/4.6-3.png" alt="4.6-3" style="zoom:50%;" />
 
 
-
-
-
 ## 参考资料
 
 无刷电机和有刷电机的区别：`https://www.sumzi.com/new201509/news_info.aspx?id=9913`
+
+
+
+# FOC平衡车
+
+## 1. 测试环境搭建
+
+### 1.1 软件开发环境
+
+#### 1.1.1 安装库 `esp32 by Espressif Systems`
+
+安装的版本：`2.0.4`
+
+* 进入`BOARDS MANAGER`页面
+* 输入`esp32`
+* `esp32 by Espressif Systems`选择`2.0.4`版本进行安装 
+
+<img src="dengFOC学习.assets/image-20250521180733247.png" alt="image-20250521180733247" style="zoom:50%;" />
+
+<img src="dengFOC学习.assets/image-20250521180733247.png" alt="image-20250521180733247" style="zoom:50%;" />
+
+
+
+### 1.2 硬件连接（简单测试FOC）
+
+* 连接电源线
+* 连接电机（三条线不区分顺序）
+* 插上ESP32开发板
+
+<img src="dengFOC学习.assets/357541721-1747828139088.jpg" alt="img" style="zoom:50%;" />
+
+<img src="dengFOC学习.assets/501674065.jpg" alt="img" style="zoom:50%;" />
+
+### 1.3 烧写测试代码
+
+使用开环速度FOC代码进行测试，代码位置：
+
+```txt
+V3P资料包\3、V3P驱动板例程程序\ESP32_V3P例程\DengFOC_库例程\【手把手教些FOC算法】系列课程代码\第五章a+b 开环速度FOC代码\DengFOC_Lib_Lesson5_OpenLoop_Vel
+```
+
+打开该arduino工程：
+
+* 配置开发板为 `ESP32 Dev Module`
+
+  <img src="dengFOC学习.assets/image-20250521200630842.png" alt="image-20250521200630842" style="zoom:50%;" />
+
+* 选择端口号
+
+  <img src="dengFOC学习.assets/image-20250521200752605.png" alt="image-20250521200752605" style="zoom:50%;" />
+
+点击烧录并下载程序：
+
+![image-20250521200855137](dengFOC学习.assets/image-20250521200855137.png)
+
+<img src="dengFOC学习.assets/image-20250521200940867.png" alt="image-20250521200940867" style="zoom:50%;" />
+
+接通电源，就可以看到电机旋转了。
+
+> 电源为`12V2A`
+
+
+
+## 其他
+
+###1. 配置存储路径，避免占用C盘空间
+
+* 配置项目位置：
+
+  `File-->Preferences->Sketchbook location`
+
+  <img src="dengFOC学习.assets/image-20250521175946856.png" alt="image-20250521175946856" style="zoom: 50%;" />
+
+  <img src="dengFOC学习.assets/image-20250521180018481.png" alt="image-20250521180018481" style="zoom:50%;" />
+
+* 修改安装库的存储路径
+
+  打开配置文件：`C:\Users\xxx\.arduinoIDE\arduino-cli.yaml`
+
+  修改`libraries`和`data`到其他盘：
+
+  这边选择到D盘：`D:\01.software\arduinoIDE\Arduino15`
+
+  ![image-20250521180236699](dengFOC学习.assets/image-20250521180236699.png)
+
+
 
 
 
