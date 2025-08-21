@@ -596,6 +596,44 @@ $$
 
 
 
+
+
+### 4.x 实验：
+
+<font color=blue>实验前猜测：电机在转到目标角度时，因为力矩精度的问题，可能会在目标角度之间震荡</font>
+
+<font color=blue>验证：</font>
+
+实验代码：
+
+```c
+void loop() 
+{
+  //输出角度值
+  float Kp=0.133;
+  float Sensor_Angle=DFOC_M0_Angle();
+  float Uq = Kp*(serial_motor_target()-Sensor_DIR*Sensor_Angle)*180/PI;
+  float ele_angle = _electricalAngle();
+  static int count = 0;
+  count += 1;
+  if(count >= 10) {
+    count = 0;
+    Serial.printf("Uq:%f Sensor_Angle:%f ele_angle:%f\n", Uq, Sensor_Angle, ele_angle);
+  }
+  
+  setTorque(Uq, ele_angle);   //位置闭环
+    /*串口输入指令 target\n  10\n  */
+  serialReceiveUserCommand();
+
+}
+```
+
+![image-20250821202342765](dengFOC学习.assets/image-20250821202342765.png)
+
+烧写代码后，输入目标角度1，转动foc偏离目标角度后分开，确实会在目标角度之间震荡，后面就一直稳定在0.98xx的值内变化。
+
+
+
 ## 参考资料
 
 无刷电机和有刷电机的区别：`https://www.sumzi.com/new201509/news_info.aspx?id=9913`
