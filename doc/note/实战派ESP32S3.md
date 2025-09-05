@@ -219,6 +219,24 @@ void app_main(void)
 
 
 
+## 第5章 姿态传感器
+
+
+
+### 1. 硬件原理图
+
+<img src="实战派ESP32S3.assets/introduction_20241014_094039.png" alt="introduction_20241014_094039" style="zoom: 80%;" />
+
+
+
+
+
+
+
+
+
+
+
 
 
 ## 第9章 液晶显示
