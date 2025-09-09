@@ -987,29 +987,85 @@ void loop()
 
 所以整个过程的重点就是如何通过硬件获取电流$i_a$、$i_b$。
 
+#### 6.2.2 电流如何传感
+
+![img](dengFOC学习.assets/8-1.jpeg)
+
+在每根相线上，串联一个采样电阻和接入一个电流传感器，就像万用表一样。
+
+使用一个电流传感器，测出采样电阻的电压，利用欧姆定律求出电流值。
+
+INA240A2电流传感器：尽管它被称为电流传感器，但实际上它传递给单片机的却是电压值，那是因为单片机的IO引脚的ADC功能（数模转换）只能识别电压值而不能识别电流值，因此它只能通过电压值来让单片机完成检测。
+
+电流传感过程总结如下图：
+
+![img](dengFOC学习.assets/8-2.jpeg)
 
 
 
+#### 6.2.3 电流闭环代码撰写
 
+利用欧姆定律求出电流值：
 
+* 采样电阻阻值为0.01欧姆
 
+* 电压由INA240A2检测，检测的电流值被放大了50倍
 
+* 因此电流求解公式如下：
+  $$
+  I = \frac{U}{50*R}
+  $$
 
+进一步，写出代码如下：（三相电流读取代码）
 
+```c
+volts_to_amps_ratio = 1.0f /_shunt_resistor / amp_gain; // 将电压转化为电流
+gain_a = volts_to_amps_ratio*-1;
+gain_b = volts_to_amps_ratio*-1;
+gain_c = volts_to_amps_ratio;
+//电流读取
+current_a = (readADCVoltageInline(pinA) - offset_ia)*gain_a;// 安培
+current_b = (readADCVoltageInline(pinB) - offset_ib)*gain_b;// 安培
+current_c = (!_isset(pinC)) ? 0 : (readADCVoltageInline(pinC) - offset_ic)*gain_c; // 安培
+```
 
+* volts_to_amps_ratio 计算的正是上述公式中的（1/(50R)）
+* gain_a, gain_b, gain_c主要用来使得测量值与传感器的检测方向相符（乘上1：正向 或 乘上-1 反向）
+* pinA、pinB、pinC：三相电流的检测IO口
+* readADCVoltageInline() 读取电压，读出的电压值于0位偏差（offset_ia，offset_i, offset_ic）相减，得到消去偏差后的代表电流的电压值，最后通过分别乘上gain_a, gain_b, gain_c，将电压转化为电流，得到最终检测到的电流current_a，current_b, current_c。
 
+offset_ia，offset_i, offset_ic的求解，采用如下代码：
 
+```c
+// 查找 ADC 零偏移量的函数
+void Inline_CurrSense::calibrateOffsets(){
+    const int calibration_rounds = 1000;
 
+    // 查找0电流时候的电压
+    offset_ia = 0;
+    offset_ib = 0;
+    offset_ic = 0;
+    // 读数1000次
+    for (int i = 0; i < calibration_rounds; i++) {
+        offset_ia += readADCVoltageInline(pinA);
+        offset_ib += readADCVoltageInline(pinB);
+        if(_isset(pinC)) offset_ic += readADCVoltageInline(pinC);
+        delay(1);
+    }
+    // 求平均，得到误差
+    offset_ia = offset_ia / calibration_rounds;
+    offset_ib = offset_ib / calibration_rounds;
+    if(_isset(pinC)) offset_ic = offset_ic / calibration_rounds;
+}
+```
 
+offset的求解其实就是一种传感器0位的查找。如果只记录程序开始的瞬间值作为0位，可能存在偏差的可能，因此0位的求解方法可以通过记录多个值，然后求平均的方式。
 
+> 这边感觉可以去掉几个高位和低位的值，再求平均会更好，避免异常值的偏差过大，导致平均值被拉偏。
 
+读出的电压值和0位值相减，然后再乘以gain_xxx，就得到了对应的电流$I_q$，进而套上PID进行电流闭环。
 
-
-
-
-
-
-
+进一步的，把电流闭环功能套在位置闭环或者速度闭环中，我们就能够实现三环闭环嵌套。
 
 
 
