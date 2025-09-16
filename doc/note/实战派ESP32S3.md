@@ -245,11 +245,9 @@ void app_main(void)
 
 ### 1. 硬件原理图
 
-![image-20250916100016123](实战派ESP32S3.assets/image-20250916100016123.png)
-
 ![image-20250916100030732](实战派ESP32S3.assets/image-20250916100030732.png)
 
-
+![image-20250916132938551](实战派ESP32S3.assets/image-20250916132938551.png)
 
 
 
