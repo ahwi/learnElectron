@@ -138,6 +138,83 @@ idf.py build
 
 
 
+### 时钟树
+
+#### 1. 概述
+
+ESP32的时钟子系统用于从一系列根时钟中提取并分配系统/模块时钟。时钟树驱动程序负责维护系统时钟的基本功能，并管理模块时钟间的复杂关系。
+
+#### 2. 根时钟
+
+ESP32支持的根时钟包括：
+
+* 内部8MHz RC振荡器 (RC_FAST)
+  * 产生约8.5 MHz时钟信号输出，标识为`RC_FAST_CLK`
+  * 传入分频器，生成`RC_FAST_D256_CLK`（默认分频256倍）
+
+* 外部2～40MHz晶振 (XTAL)
+
+* 内部150kHz RC振荡器 (RC_SLOW)
+  * 产生约150 kHz时钟信号，标识为`RC_SLOW_CLK`
+
+* 外部32kHz晶振 - 可选 (XTAL32K)
+
+  `XTAL32K_CLK`的时钟源可以来自：
+
+  * 连接到`32K_XP`和`32K_XN`管脚的32 KHz晶振。
+
+  * 外部电路生成的32kHz时钟信号。
+
+    > 如果使用外部电路生成的时钟信号，该信号必须连接到`32K_XN`管脚，并且在`32K_XP`管脚和地之间连接一个1nF的电容。此时，`32K_XP`管脚不能用作GPIO管脚。
+
+与晶振产生的信号相比，从RC振荡器电路产生的信号通常精度较低，且容易受环境影响。
+
+ESP32为`RTC_SLOW_CLK`提供了几种时钟源选项，可以根据对系统时间精度和对功耗的要求选择。更多详情，参阅 [RTC 定时器时钟源](https://docs.espressif.com/projects/esp-idf/zh_CN/release-v5.1/esp32/api-reference/system/system_time.html#rtc-clock-source-choice)。
+
+#### 3. 模块时钟
+
+ESP32 的可用模块时钟在 [`soc_module_clk_t`](https://docs.espressif.com/projects/esp-idf/zh_CN/release-v5.1/esp32/api-reference/peripherals/clk_tree.html#_CPPv416soc_module_clk_t) 中列出，ESP32支持的模块时钟包括：
+
+- `SOC_MOD_CLK_CPU`：CPU时钟源（可从XTAL、PLL、RC_FAST或APLL获取）
+- `SOC_MOD_CLK_RTC_FAST`：RTC快速时钟
+- `SOC_MOD_CLK_RTC_SLOW`：RTC慢速时钟
+- `SOC_MOD_CLK_APB`：APB总线时钟
+- `SOC_MOD_CLK_PLL_D2`：PLL分频2倍的时钟
+- `SOC_MOD_CLK_PLL_F160M`：固定160MHz的PLL时钟
+- 其他外设专用时钟（如ADC、DAC、UART等）
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 ### LED PWM 控制器
 
 文档：https://docs.espressif.com/projects/esp-idf/zh_CN/release-v5.1/esp32/api-reference/peripherals/ledc.html
