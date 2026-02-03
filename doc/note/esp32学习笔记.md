@@ -247,7 +247,7 @@ ESP32 的可用模块时钟在 [`soc_module_clk_t`](https://docs.espressif.com/p
 
 #### 4. I2S通信模式
 
-#### 4.1 模式预览
+##### 4.1 模式预览
 
 ![image-20260128141144401](esp32学习笔记.assets/image-20260128141144401.png)
 
@@ -262,7 +262,7 @@ ESP32 的可用模块时钟在 [`soc_module_clk_t`](https://docs.espressif.com/p
 
 >  **注意**：PDM 模式不支持全双工；ESP32 单工模式下 TX/RX 不能共存于同一 I2S 端口
 
-##### 4.1.1 标准模式
+##### 4.2 标准模式
 
 标准模式中有且仅有左右两个声道，驱动中将声道称为 slot。这些声道可以支持 8/16/24/32 位宽的采样数据。
 
@@ -280,7 +280,7 @@ ESP32 的可用模块时钟在 [`soc_module_clk_t`](https://docs.espressif.com/p
 
   ![image-20260128141932258](esp32学习笔记.assets/image-20260128141932258.png)
 
-##### 4.1.2 PDM模式（TX）
+##### 4.3 PDM模式（TX）
 
 PDM（Pulse-density Modulation，脉冲密度调制） TX 模式：
 
@@ -289,8 +289,9 @@ PDM（Pulse-density Modulation，脉冲密度调制） TX 模式：
 * 至少需要一个 CLK 管脚用于时钟信号，一个 DOUT 管脚用于数据信号（即下图中的 WS 和 SD 信号。BCK 信号为内部位采样时钟，在 PDM 设备之间不需要）。
 
 * 允许用户配置上采样参数 `i2s_pdm_tx_clk_config_t::up_sample_fp` 和 `i2s_pdm_tx_clk_config_t::up_sample_fs`
-  * 采样率计算公式：`up_sample_rate = fp / fs`
-
+  
+* 采样率计算公式：`up_sample_rate = fp / fs`
+  
 * 在 PDM TX 中有以下两种上采样模式：
 
   * 固定时钟频率模式：在这种模式下，上采样率将根据采样率的变化而变化。设置 `fp = 960`、 `fs = sample_rate / 100`，则 CLK 管脚上的时钟频率 (Fpdm) 将固定为 `128 * 48 KHz = 6.144 MHz`。注意此频率不等于采样率 (Fpcm)。
@@ -300,7 +301,7 @@ PDM（Pulse-density Modulation，脉冲密度调制） TX 模式：
 
 ![image-20260128142728736](esp32学习笔记.assets/image-20260128142728736.png)
 
-##### 4.1.3 PDM模式（RX）
+##### 4.4 PDM模式（RX）
 
 PDM（Pulse-density Modulation，脉冲密度调制）RX 模式：
 
@@ -312,43 +313,438 @@ PDM（Pulse-density Modulation，脉冲密度调制）RX 模式：
   * `i2s_pdm_dsr_t::I2S_PDM_DSR_8S`：在这种模式下，WS 管脚的时钟频率 (Fpdm) 将为 `sample_rate (Fpcm) * 64`。
   * `i2s_pdm_dsr_t::I2S_PDM_DSR_16S`：在这种模式下，WS 管脚的时钟频率 (Fpdm) 将为 `sample_rate (Fpcm) * 128`。
 
-##### 4.1.4 LCD/摄像头模式
+##### 4.5 LCD/摄像头模式
 
 略
 
-##### 4.1.5 ADC/DAC模式
+##### 4.6 ADC/DAC模式
 
 略
 
+#### 5. 功能概览
 
+##### 5.1 资源管理三级结构
 
+1. **平台级**：所有 I2S 控制器资源（驱动自动管理，用户无需关心）
+2. **控制器级**：单个 I2S 外设资源（驱动自动管理，用户无需关心）
+3. **通道级**：TX/RX 通道（公开的API都为通道级）。用户通过 `i2s_new_channel()` 分配句柄，`i2s_del_channel()` 释放。
 
+##### 5.2 电源管理
 
+* 启用电源管理（CONFIG_PM_ENABLE）时，I2S 读写会自动获取电源锁：
+  * APB 时钟源：锁类型 `ESP_PM_APB_FREQ_MAX`。
+  * APLL 时钟源：锁类型 `ESP_PM_NO_LIGHT_SLEEP`。
 
+* 读写完成后自动释放锁，避免 Light-sleep 影响时钟。
 
+##### 5.3 有限状态机
 
+I2S 通道有三种状态，分别为 `registered（已注册）`、 `ready（准备就绪）` 和 `running（运行中）`，它们的关系如下图所示：
 
+![image-20260129091734753](esp32学习笔记.assets/image-20260129091734753.png)
 
+##### 5.4 核心配置与使用流程
 
+1. 分配通道：`i2s_new_channel()`（支持单工/全双工）
+2. 初始化模式：
+   - 标准模式：`i2s_channel_init_std_mode()`
+   - PDM TX/RX：`i2s_channel_init_pdm_tx_mode()` / `..._rx_mode()`
+3. 配置要素：
+   - 时钟：采样率、MCLK 倍数（24位数据需设为 384 倍）
+   - 声道：位宽（8/16/24/32）、单/立体声、掩码
+   - GPIO：BCLK、WS、DOUT/DIN、MCLK（可选）
+4. 启用通道：`i2s_channel_enable()`
+5. 数据传输：
+   - 阻塞式：`i2s_channel_write()` / `i2s_channel_read()`
+   - 异步式：注册 ISR 回调（需注意 IRAM 安全）
+6. 释放资源：先 `disable` → 再 `del_channel`
 
+7. 其他：
 
+   * 中断：
 
+     * 发送或接收的数据达到 DMA 缓冲区的大小时，将触发 `I2S_OUT_EOF` 或 `I2S_IN_SUC_EOF` 中断。
 
+   * DMA 缓冲区的大小：
 
+     * DMA 缓冲区的大小不等于 `i2s_chan_config_t::dma_frame_num`。
+     * 这里的一帧是指一个 WS 周期内的所有采样数据。
+     * `dma_buffer_size = dma_frame_num * slot_num * slot_bit_width / 8`
 
+   * 初始化后，如果要重新更新配置：
 
+     * 必须先调用 `i2s_channel_disable()` 以确保通道已经停止运行
+     * 再调用相应的 'reconfig' 函数：
+       *  `i2s_channel_reconfig_std_slot()`
+       * `i2s_channel_reconfig_std_clock()`
+       *  `i2s_channel_reconfig_std_gpio()`
 
+   * 读写函数
 
+     * `i2s_channel_write()`：用来输入数据，并把数据从源缓冲区复制到 DMA TX 缓冲区等待传输完成。此过程将重复进行，直到发送的字节数达到配置的大小。
+     * `i2s_channel_read()`：接收数据，等待接收包含 DMA 缓冲区地址的消息队列，从而将数据从 DMA RX 缓冲区复制到目标缓冲区。
+     * `i2s_channel_write()`和 `i2s_channel_read()`都是阻塞函数，在源缓冲区的数据发送完毕前，或是整个目标缓冲区都被加载数据占用时，它们会一直保持等待状态。在等待时间达到最大阻塞时间时，返回 ESP_ERR_TIMEOUT 错误。
 
+     * `i2s_channel_register_event_callback()`：可以注册回调，随即便可在回调函数中直接访问 DMA 缓冲区，无需通过这两个阻塞函数来发送或接收数据。但请注意，该回调是一个中断回调，不要在该回调中添加复杂的逻辑、进行浮点运算或调用不可重入函数。
 
+#### 6. 应用实例
 
+I2S 驱动例程请参考 [peripherals/i2s](https://github.com/espressif/esp-idf/tree/4b1ae715b8b/examples/peripherals/i2s) 目录。以下为每种模式的简单用法：
 
+##### 6.1 标准TX/RX模式的应用
 
+不同声道的通信格式可通过以下标准模式的辅助宏来生成。在标准模式下有三种格式，辅助宏分别为：
 
+* `I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG`
+* `I2S_STD_PCM_SLOT_DEFAULT_CONFIG`
+* `I2S_STD_MSB_SLOT_DEFAULT_CONFIG`
 
+时钟配置的辅助宏：
 
+* `I2S_STD_CLK_DEFAULT_CONFIG`
 
+###### 6.1.1 STD TX模式
 
+数据在16位宽，不同声道模式，声道掩码下的数据排列方式，这边省略。
+
+示例代码，配置标准发送模式：
+
+```c
+#include "driver/i2s_std.h"
+#include "driver/gpio.h"
+
+i2s_chan_handle_t tx_handle;
+/* 通过辅助宏获取默认的通道配置
+ * 这个辅助宏在 'i2s_common.h' 中定义，由所有 I2S 通信模式共享
+ * 它可以帮助指定 I2S 角色和端口 ID */
+i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_AUTO, I2S_ROLE_MASTER);
+/* 分配新的 TX 通道并获取该通道的句柄 */
+i2s_new_channel(&chan_cfg, &tx_handle, NULL);
+
+/* 进行配置，可以通过宏生成声道配置和时钟配置
+ * 这两个辅助宏在 'i2s_std.h' 中定义，只能用于 STD 模式
+ * 它们可以帮助初始化或更新声道和时钟配置 */
+i2s_std_config_t std_cfg = {
+    .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(48000),
+    .slot_cfg = I2S_STD_MSB_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_32BIT, I2S_SLOT_MODE_STEREO),
+    .gpio_cfg = {
+        .mclk = I2S_GPIO_UNUSED,
+        .bclk = GPIO_NUM_4,
+        .ws = GPIO_NUM_5,
+        .dout = GPIO_NUM_18,
+        .din = I2S_GPIO_UNUSED,
+        .invert_flags = {
+            .mclk_inv = false,
+            .bclk_inv = false,
+            .ws_inv = false,
+        },
+    },
+};
+/* 初始化通道 */
+i2s_channel_init_std_mode(tx_handle, &std_cfg);
+
+/* 在写入数据之前，先启用 TX 通道 */
+i2s_channel_enable(tx_handle);
+i2s_channel_write(tx_handle, src_buf, bytes_to_write, bytes_written, ticks_to_wait);
+
+/* 如果需要更新声道或时钟配置
+ * 需要在更新前先禁用通道 */
+// i2s_channel_disable(tx_handle);
+// std_cfg.slot_cfg.slot_mode = I2S_SLOT_MODE_MONO; // 默认为立体声
+// i2s_channel_reconfig_std_slot(tx_handle, &std_cfg.slot_cfg);
+// std_cfg.clk_cfg.sample_rate_hz = 96000;
+// i2s_channel_reconfig_std_clock(tx_handle, &std_cfg.clk_cfg);
+
+/* 删除通道之前必须先禁用通道 */
+i2s_channel_disable(tx_handle);
+/* 如果不再需要句柄，删除该句柄以释放通道资源 */
+i2s_del_channel(tx_handle);
+```
+
+###### 6.1.2 STD RX模式
+
+数据在16位宽，不同声道模式，声道掩码下的数据排列方式，这边省略。
+
+STD RX模式下的示例代码：
+
+```c
+#include "driver/i2s_std.h"
+#include "driver/gpio.h"
+
+i2s_chan_handle_t rx_handle;
+/* 通过辅助宏获取默认的通道配置
+ * 这个辅助宏在 'i2s_common.h' 中定义，由所有 I2S 通信模式共享
+ * 它可以帮助指定 I2S 角色和端口 ID */
+i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_AUTO, I2S_ROLE_MASTER);
+/* 分配新的 TX 通道并获取该通道的句柄 */
+i2s_new_channel(&chan_cfg, NULL, &rx_handle);
+
+/* 进行配置，可以通过宏生成声道配置和时钟配置
+ * 这两个辅助宏在 'i2s_std.h' 中定义，只能用于 STD 模式
+ * 它们可以帮助初始化或更新声道和时钟配置 */
+i2s_std_config_t std_cfg = {
+    .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(48000),
+    .slot_cfg = I2S_STD_MSB_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_32BIT, I2S_SLOT_MODE_STEREO),
+    .gpio_cfg = {
+        .mclk = I2S_GPIO_UNUSED,
+        .bclk = GPIO_NUM_4,
+        .ws = GPIO_NUM_5,
+        .dout = I2S_GPIO_UNUSED,
+        .din = GPIO_NUM_19,
+        .invert_flags = {
+            .mclk_inv = false,
+            .bclk_inv = false,
+            .ws_inv = false,
+        },
+    },
+};
+/* 初始化通道 */
+i2s_channel_init_std_mode(rx_handle, &std_cfg);
+
+/* 在读取数据之前，先启动 RX 通道 */
+i2s_channel_enable(rx_handle);
+i2s_channel_read(rx_handle, desc_buf, bytes_to_read, bytes_read, ticks_to_wait);
+
+/* 删除通道之前必须先禁用通道 */
+i2s_channel_disable(rx_handle);
+/* 如果不再需要句柄，删除该句柄以释放通道资源 */
+i2s_del_channel(rx_handle);
+```
+
+##### 6.2 PDM TX模式的应用
+
+PMD TX模式：
+
+* 声道配置的辅助宏为：
+  - `I2S_PDM_TX_SLOT_DEFAULT_CONFIG`
+* 时钟配置的辅助宏为：
+  * `I2S_PDM_TX_CLK_DEFAULT_CONFIG`
+
+PDM数据位宽固定16位宽，不同声道模式，声道掩码下的数据排列方式，这边省略。
+
+PDM TX模式 示例代码：
+
+```c
+#include "driver/i2s_pdm.h"
+#include "driver/gpio.h"
+
+/* 分配 I2S TX 通道 */
+i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
+i2s_new_channel(&chan_cfg, &tx_handle, NULL);
+
+/* 初始化通道为 PDM TX 模式 */
+i2s_pdm_tx_config_t pdm_tx_cfg = {
+    .clk_cfg = I2S_PDM_TX_CLK_DEFAULT_CONFIG(36000),
+    .slot_cfg = I2S_PDM_TX_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO),
+    .gpio_cfg = {
+        .clk = GPIO_NUM_5,
+        .dout = GPIO_NUM_18,
+        .invert_flags = {
+            .clk_inv = false,
+        },
+    },
+};
+i2s_channel_init_pdm_tx_mode(tx_handle, &pdm_tx_cfg);
+
+...
+```
+
+##### 6.3 PDM TX模式的应用
+
+PMD RX模式：
+
+* 声道配置的辅助宏为：
+  - `I2S_PDM_RX_SLOT_DEFAULT_CONFIG`
+* 时钟配置的辅助宏为：
+  * `I2S_PDM_RX_CLK_DEFAULT_CONFIG`
+
+PDM TX模式的示例代码：
+
+```c
+#include "driver/i2s_pdm.h"
+#include "driver/gpio.h"
+
+i2s_chan_handle_t rx_handle;
+
+/* 分配 I2S RX 通道 */
+i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
+i2s_new_channel(&chan_cfg, NULL, &rx_handle);
+
+/* 初始化通道为 PDM RX 模式 */
+i2s_pdm_rx_config_t pdm_rx_cfg = {
+    .clk_cfg = I2S_PDM_RX_CLK_DEFAULT_CONFIG(36000),
+    .slot_cfg = I2S_PDM_RX_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO),
+    .gpio_cfg = {
+        .clk = GPIO_NUM_5,
+        .din = GPIO_NUM_19,
+        .invert_flags = {
+            .clk_inv = false,
+        },
+    },
+};
+i2s_channel_init_pdm_rx_mode(rx_handle, &pdm_rx_cfg);
+
+...
+```
+
+##### 6.4 全双工
+
+全双工模式：
+
+* 在 I2S 端口中同时注册 TX 和 RX 通道
+* 同时通道共享 BCLK 和 WS 信号
+
+支持情况：
+
+* STD 和 TDM 通信模式支持全双工通信
+* 不支持 PDM 全双工模式，因为 PDM 模式下 TX 和 RX 通道的时钟不同。
+
+> 注意，一个句柄只能代表一个通道，因此仍然需要对 TX 和 RX 通道逐个进行声道和时钟配置。
+
+驱动支持两种分配全双工通道的方法：
+
+* 在调用 `i2s_new_channel() 函数时，同时分配 TX 和 RX 通道两个通道。
+
+  ```c
+  #include "driver/i2s_std.h"
+  #include "driver/gpio.h"
+  
+  i2s_chan_handle_t tx_handle;
+  i2s_chan_handle_t rx_handle;
+  
+  /* 分配两个 I2S 通道 */
+  i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_AUTO, I2S_ROLE_MASTER);
+  /* 同时分配给 TX 和 RX 通道，使其进入全双工模式。 */
+  i2s_new_channel(&chan_cfg, &tx_handle, &rx_handle);
+  
+  /* 配置两个通道，因为在全双工模式下，TX 和 RX 通道必须相同。 */
+  i2s_std_config_t std_cfg = {
+      .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(32000),
+      .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO),
+      .gpio_cfg = {
+          .mclk = I2S_GPIO_UNUSED,
+          .bclk = GPIO_NUM_4,
+          .ws = GPIO_NUM_5,
+          .dout = GPIO_NUM_18,
+          .din = GPIO_NUM_19,
+          .invert_flags = {
+              .mclk_inv = false,
+              .bclk_inv = false,
+              .ws_inv = false,
+          },
+      },
+  };
+  i2s_channel_init_std_mode(tx_handle, &std_cfg);
+  i2s_channel_init_std_mode(rx_handle, &std_cfg);
+  
+  i2s_channel_enable(tx_handle);
+  i2s_channel_enable(rx_handle);
+  
+  ...
+  ```
+
+* 调用两次 `i2s_new_channel()`函数分别分配 TX 和 RX 通道，但使用相同配置初始化 TX 和 RX 通道。
+
+  ```c
+  #include "driver/i2s_std.h"
+  #include "driver/gpio.h"
+  
+  i2s_chan_handle_t tx_handle;
+  i2s_chan_handle_t rx_handle;
+  
+  /* 分配两个 I2S 通道 */
+  i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
+  /* 分别分配给 TX 和 RX 通道 */
+  ESP_ERROR_CHECK(i2s_new_channel(&chan_cfg, &tx_handle, NULL));
+  
+  /* 为两个通道设置完全相同的配置，TX 和 RX 将自动组成全双工模式 */
+  i2s_std_config_t std_cfg = {
+      .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(32000),
+      .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO),
+      .gpio_cfg = {
+          .mclk = I2S_GPIO_UNUSED,
+          .bclk = GPIO_NUM_4,
+          .ws = GPIO_NUM_5,
+          .dout = GPIO_NUM_18,
+          .din = GPIO_NUM_19,
+          .invert_flags = {
+              .mclk_inv = false,
+              .bclk_inv = false,
+              .ws_inv = false,
+          },
+      },
+  };
+  ESP_ERROR_CHECK(i2s_channel_init_std_mode(tx_handle, &std_cfg));
+  ESP_ERROR_CHECK(i2s_channel_enable(tx_handle));
+  // ...
+  ESP_ERROR_CHECK(i2s_new_channel(&chan_cfg, NULL, &rx_handle));
+  ESP_ERROR_CHECK(i2s_channel_init_std_mode(rx_handle, &std_cfg));
+  ESP_ERROR_CHECK(i2s_channel_enable(rx_handle));
+  
+  ...
+  ```
+
+##### 6.5 单工模式
+
+在单工模式下，应该为每个通道调用`i2s_new_channel()`。因为在 ESP32 上，TX/RX 通道的时钟和 GPIO 管脚不是相互独立的，因此在单工模式下，TX 和 RX 通道不能共存于同一个 I2S 端口中。
+
+```c
+#include "driver/i2s_std.h"
+#include "driver/gpio.h"
+
+i2s_chan_handle_t tx_handle;
+i2s_chan_handle_t rx_handle;
+
+i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_AUTO, I2S_ROLE_MASTER);
+ESP_ERROR_CHECK(i2s_new_channel(&chan_cfg, &tx_handle, NULL));
+i2s_std_config_t std_tx_cfg = {
+    .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(48000),
+    .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO),
+    .gpio_cfg = {
+        .mclk = GPIO_NUM_0,
+        .bclk = GPIO_NUM_4,
+        .ws = GPIO_NUM_5,
+        .dout = GPIO_NUM_18,
+        .din = I2S_GPIO_UNUSED,
+        .invert_flags = {
+            .mclk_inv = false,
+            .bclk_inv = false,
+            .ws_inv = false,
+        },
+    },
+};
+/* 初始化通道 */
+ESP_ERROR_CHECK(i2s_channel_init_std_mode(tx_handle, &std_tx_cfg));
+ESP_ERROR_CHECK(i2s_channel_enable(tx_handle));
+
+/* 如果没有找到其他可用的 I2S 设备，RX 通道将被注册在另一个 I2S 上
+ * 并返回 ESP_ERR_NOT_FOUND */
+ESP_ERROR_CHECK(i2s_new_channel(&chan_cfg, NULL, &rx_handle));
+i2s_std_config_t std_rx_cfg = {
+    .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(16000),
+    .slot_cfg = I2S_STD_MSB_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_32BIT, I2S_SLOT_MODE_STEREO),
+    .gpio_cfg = {
+        .mclk = I2S_GPIO_UNUSED,
+        .bclk = GPIO_NUM_6,
+        .ws = GPIO_NUM_7,
+        .dout = I2S_GPIO_UNUSED,
+        .din = GPIO_NUM_19,
+        .invert_flags = {
+            .mclk_inv = false,
+            .bclk_inv = false,
+            .ws_inv = false,
+        },
+    },
+};
+ESP_ERROR_CHECK(i2s_channel_init_std_mode(rx_handle, &std_rx_cfg));
+ESP_ERROR_CHECK(i2s_channel_enable(rx_handle));
+```
+
+#### 7. 注意事项
+
+##### 7.1 防止数据丢失
+
+略
 
 ### LED PWM 控制器
 
